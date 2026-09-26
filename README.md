@@ -43,6 +43,8 @@ chmod +x install.sh
 curl -fsSL https://raw.githubusercontent.com/phenomenonRT/keenetic-audio-player-v2/main/install-from-release.sh -o /tmp/audio-player-install.sh && sh /tmp/audio-player-install.sh
 ```
 
+На Keenetic с Entware установщик автоматически обнаруживает `/opt/etc/init.d/rc.unslung` и добавляет `S99audio-player` в `/opt/etc/init.d`. `rc.unslung` будет запускать плеер при старте Entware; `sudo` не нужен. Для ручного управления используйте `/opt/etc/init.d/S99audio-player start|stop|restart`.
+
 Для установки конкретного релиза без запроса, например `v1.0.0`:
 
 ```bash
@@ -55,6 +57,8 @@ curl -fsSL https://raw.githubusercontent.com/phenomenonRT/keenetic-audio-player-
 
 
 ### На Linux системе (Ubuntu, Debian, CentOS)
+
+Запускайте установщик от root или через `sudo`:
 
 ```bash
 chmod +x install.sh
@@ -290,7 +294,7 @@ fetch('/api/play?id=track_123')
 fetch('/api/stop');
 ```
 
-### Bash / curl
+### curl и API
 
 ```bash
 # Получить плейлист

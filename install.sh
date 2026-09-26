@@ -280,7 +280,7 @@ prepare_directories() {
     if [ "$INSTALL_DIR" = "/opt/audio-player" ] || [ "$INSTALL_DIR" = "/usr/local/bin/audio-player" ]; then
         if [ ! -w "$(dirname "$INSTALL_DIR")" ]; then
             print_error "Нет прав для установки в $INSTALL_DIR"
-            print_info "Попробуйте: sudo ./install.sh"
+            print_info "Запустите установщик из root-консоли устройства."
             exit 1
         fi
     fi
@@ -327,7 +327,13 @@ EOF
 # Выбор способа автозапуска
 choose_autostart() {
     print_section "Автозапуск"
-    
+
+    if [ -x /opt/etc/init.d/rc.unslung ]; then
+        print_info "Обнаружен Entware rc.unslung; настрою автозапуск для Keenetic"
+        setup_entware
+        return
+    fi
+
     echo "Выберите способ автозапуска при перезагрузке:"
     echo "1) Systemd сервис (рекомендуется для Linux)"
     echo "2) Crontab (для роутеров и систем без systemd)"
@@ -351,6 +357,83 @@ choose_autostart() {
     esac
 }
 
+# Entware /opt/etc/init.d/rc.unslung
+setup_entware() {
+    print_section "Установка Entware init-скрипта"
+
+    INIT_DIR="/opt/etc/init.d"
+    INIT_FILE="$INIT_DIR/S99audio-player"
+    INSTALL_CONFIG="/opt/etc/audio-player-install-dir"
+
+    if [ ! -w "$INIT_DIR" ] || [ ! -w "$(dirname "$INSTALL_CONFIG")" ]; then
+        print_error "Нет прав на запись в /opt/etc/init.d. Запустите установщик из root-консоли Keenetic."
+        return 1
+    fi
+
+    printf '%s\n' "$INSTALL_DIR" > "$INSTALL_CONFIG"
+    cat > "$INIT_FILE" << 'EOF'
+#!/bin/sh
+CONFIG_FILE="/opt/etc/audio-player-install-dir"
+INSTALL_DIR=$(cat "$CONFIG_FILE" 2>/dev/null)
+[ -n "$INSTALL_DIR" ] || exit 1
+APP="$INSTALL_DIR/audio-player"
+PID_FILE="$INSTALL_DIR/audio-player.pid"
+LOG_FILE="$INSTALL_DIR/logs/audio-player.log"
+
+start_player() {
+    if [ ! -x "$APP" ]; then
+        echo "Audio Player not found: $APP" >&2
+        return 1
+    fi
+    if [ -f "$PID_FILE" ]; then
+        pid=$(cat "$PID_FILE" 2>/dev/null)
+        case "$pid" in
+            ''|0|*[!0-9]*) pid="" ;;
+        esac
+        if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+            echo "Audio Player is already running (PID $pid)"
+            return 0
+        fi
+        rm -f "$PID_FILE"
+    fi
+    mkdir -p "$INSTALL_DIR/logs"
+    cd "$INSTALL_DIR" || return 1
+    ./audio-player >> "$LOG_FILE" 2>&1 &
+    echo "$!" > "$PID_FILE"
+    echo "Audio Player started (PID $(cat "$PID_FILE"))"
+}
+
+stop_player() {
+    if [ ! -f "$PID_FILE" ]; then
+        echo "Audio Player is not running"
+        return 0
+    fi
+    pid=$(cat "$PID_FILE" 2>/dev/null)
+    case "$pid" in
+        ''|0|*[!0-9]*) rm -f "$PID_FILE"; echo "Invalid PID file removed"; return 0 ;;
+    esac
+    if kill "$pid" 2>/dev/null; then
+        rm -f "$PID_FILE"
+        echo "Audio Player stopped"
+    else
+        rm -f "$PID_FILE"
+        echo "Audio Player process was not found"
+    fi
+}
+
+case "${1:-start}" in
+    start) start_player ;;
+    stop) stop_player ;;
+    restart) stop_player; start_player ;;
+    *) echo "Usage: $0 {start|stop|restart}" >&2; exit 1 ;;
+esac
+EOF
+    chmod +x "$INIT_FILE"
+    AUTOSTART_KIND="entware"
+    print_success "Установлен $INIT_FILE; rc.unslung будет запускать его при старте Entware"
+    echo "Управление: $INIT_FILE {start|stop|restart}"
+}
+
 # Systemd сервис
 setup_systemd() {
     print_section "Установка Systemd сервиса"
@@ -367,7 +450,7 @@ setup_systemd() {
     # Проверяем права
     if [ ! -w "$(dirname "$service_file")" ]; then
         print_warning "Требуются права администратора для установки сервиса"
-        echo "Выполните: sudo ./install.sh"
+        echo "Запустите установщик из root-консоли устройства."
         return
     fi
     
@@ -430,7 +513,7 @@ setup_initd() {
     
     if [ ! -w "$(dirname "$init_file")" ]; then
         print_warning "Требуются права администратора"
-        echo "Выполните: sudo ./install.sh"
+        echo "Запустите установщик из root-консоли устройства."
         return
     fi
     
@@ -476,6 +559,10 @@ show_summary() {
     echo "⚙️  Конфиг-файл:        $CONFIG_FILE"
     echo "🎵 Приложение:          $INSTALL_DIR/audio-player"
     echo "📜 Логи:                $INSTALL_DIR/logs/"
+    if [ "${AUTOSTART_KIND:-}" = "entware" ]; then
+        echo "⚙️  Автозапуск:          /opt/etc/init.d/S99audio-player"
+        echo "    Управление:          /opt/etc/init.d/S99audio-player start|stop|restart"
+    fi
     echo ""
     
     printf '%s\n' "${GREEN}Следующие шаги:${NC}"
@@ -519,6 +606,10 @@ ask_run_now() {
         echo "Запуск приложения..."
         printf '%s\n' "${GREEN}════════════════════════════════════════════${NC}"
         echo ""
+        if [ "${AUTOSTART_KIND:-}" = "entware" ]; then
+            /opt/etc/init.d/S99audio-player start
+            return
+        fi
         cd "$INSTALL_DIR"
         exec ./audio-player
         ;;
