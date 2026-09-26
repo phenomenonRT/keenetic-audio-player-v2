@@ -459,11 +459,13 @@ done
 
 ## Установка готовой сборки с GitHub
 
-Установщик загружает бинарник для Linux с последнего GitHub Release; Go на устройстве не требуется. Сначала опубликуйте релиз тегом вида v1.0.0, затем запустите:
+Установщик загружает бинарник для Linux из GitHub Release; Go на устройстве не требуется. При установке можно оставить `latest` или указать нужный тег, например `v1.0.0`. Чтобы не спрашивать версию, укажите её в `AUDIO_PLAYER_VERSION`:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/phenomenonRT/keenetic-audio-player-v2/main/install.sh -o install.sh
 bash install.sh
+# Или установить конкретный тег без запроса:
+AUDIO_PLAYER_VERSION=v1.0.0 bash install.sh
 ```
 
 Опубликуйте тег командой `git tag v1.0.0` и отправьте его в GitHub командой `git push origin v1.0.0`. GitHub Actions соберёт бинарники и создаст Release автоматически.

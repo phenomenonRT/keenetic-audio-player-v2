@@ -233,12 +233,29 @@ compile_app() {
         *) print_error "Для архитектуры $ARCH_NAME нет готовой сборки"; exit 1 ;;
     esac
 
-    local url="https://github.com/phenomenonRT/keenetic-audio-player-v2/releases/latest/download/$asset"
+    local release_tag="${AUDIO_PLAYER_VERSION:-}"
+    if [ -z "$release_tag" ]; then
+        read -r -p "Версия релиза [latest]: " release_tag || true
+    fi
+    release_tag=${release_tag:-latest}
+
+    local base_url=""
+    if [ "$release_tag" = "latest" ]; then
+        base_url="https://github.com/phenomenonRT/keenetic-audio-player-v2/releases/latest/download"
+    else
+        if [[ ! "$release_tag" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
+            print_error "Некорректный тег релиза: $release_tag"
+            exit 1
+        fi
+        base_url="https://github.com/phenomenonRT/keenetic-audio-player-v2/releases/download/$release_tag"
+    fi
+
+    local url="$base_url/$asset"
     local temp_file
     temp_file=$(mktemp)
     if ! curl -fL --retry 3 "$url" -o "$temp_file"; then
         rm -f "$temp_file"
-        print_error "Не удалось загрузить $asset. Проверьте, что в GitHub опубликован Release."
+        print_error "Не удалось загрузить $asset для релиза $release_tag. Проверьте тег и наличие сборки этой архитектуры в GitHub Release."
         exit 1
     fi
     if [ ! -s "$temp_file" ]; then
@@ -248,7 +265,7 @@ compile_app() {
     fi
     EXECUTABLE="$temp_file"
     chmod +x "$EXECUTABLE"
-    print_success "Приложение загружено: $asset"
+    print_success "Приложение загружено: $asset (релиз $release_tag)"
 }
 # Подготовка папок
 prepare_directories() {
