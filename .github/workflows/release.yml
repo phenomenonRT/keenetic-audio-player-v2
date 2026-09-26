@@ -1,0 +1,83 @@
+name: Build and publish release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.asset }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goarch: amd64
+            asset: audio-player-linux-amd64
+          - goarch: '386'
+            go386: softfloat
+            asset: audio-player-linux-386
+          - goarch: arm64
+            asset: audio-player-linux-arm64
+          - goarch: arm
+            goarm: '5'
+            asset: audio-player-linux-armv5
+          - goarch: arm
+            goarm: '6'
+            asset: audio-player-linux-armv6
+          - goarch: arm
+            goarm: '7'
+            asset: audio-player-linux-armv7
+          - goarch: ppc64le
+            asset: audio-player-linux-ppc64le
+          - goarch: riscv64
+            asset: audio-player-linux-riscv64
+          - goarch: mipsle
+            gomips: softfloat
+            asset: audio-player-linux-mipsle-softfloat
+          - goarch: mipsle
+            gomips: hardfloat
+            asset: audio-player-linux-mipsle-hardfloat
+          - goarch: mips
+            gomips: softfloat
+            asset: audio-player-linux-mips-softfloat
+          - goarch: mips
+            gomips: hardfloat
+            asset: audio-player-linux-mips-hardfloat
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+      - name: Build
+        env:
+          GOOS: linux
+          GOARCH: ${{ matrix.goarch }}
+          GOARM: ${{ matrix.goarm }}
+          GOMIPS: ${{ matrix.gomips }}
+          GO386: ${{ matrix.go386 }}
+          CGO_ENABLED: '0'
+        run: go build -trimpath -ldflags="-s -w" -o "${{ matrix.asset }}" ./keenetic-audio-player-v2-enhanced.go
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: ${{ matrix.asset }}
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --title "$TAG" --generate-notes

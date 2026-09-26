@@ -87,6 +87,35 @@ detect_system() {
             GO_ARCH="386"
             ARCH_NAME="x86 (32-bit ПК)"
             ;;
+        armv6l|armv6)
+            GO_ARCH="arm"
+            GO_ARM="6"
+            ARCH_NAME="ARM6"
+            ;;
+        mipsel|mipsle)
+            GO_ARCH="mipsle"
+            GO_MIPS="${AUDIO_PLAYER_MIPS_FLOAT:-softfloat}"
+            ARCH_NAME="MIPS little-endian (24KEc/soft-float)"
+            ;;
+        mips)
+            # Some MIPS kernels report only "mips" even on little-endian devices.
+            if [ "$(printf '\001\000\000\000' | od -An -tu4 | tr -d ' ')" = "1" ]; then
+                GO_ARCH="mipsle"
+                ARCH_NAME="MIPS little-endian (24KEc/soft-float)"
+            else
+                GO_ARCH="mips"
+                ARCH_NAME="MIPS big-endian (soft-float)"
+            fi
+            GO_MIPS="${AUDIO_PLAYER_MIPS_FLOAT:-softfloat}"
+            ;;
+        ppc64le)
+            GO_ARCH="ppc64le"
+            ARCH_NAME="PowerPC 64-bit little-endian"
+            ;;
+        riscv64)
+            GO_ARCH="riscv64"
+            ARCH_NAME="RISC-V 64-bit"
+            ;;
         *)
             print_error "Неподдерживаемая архитектура: $ARCH"
             exit 1
@@ -137,15 +166,14 @@ check_requirements() {
     
     local missing=0
     
-    # Проверяем Go
-    if ! command -v go &> /dev/null; then
-        print_error "Go не установлен"
-        echo "Установите Go с https://golang.org/dl/ или через пакетный менеджер"
+    # Проверяем загрузчик
+    if ! command -v curl &> /dev/null; then
+        print_error "curl не установлен (нужен для загрузки сборки с GitHub)"
         missing=$((missing + 1))
     else
-        print_success "Go установлен: $(go version)"
+        print_success "curl установлен"
     fi
-    
+
     # Проверяем плееры
     echo ""
     echo "Проверка доступных плееров:"
@@ -186,36 +214,42 @@ check_requirements() {
     fi
 }
 
-# Компиляция
+# Загрузка готовой сборки
 compile_app() {
-    print_section "Компиляция приложения"
-    
-    # Проверяем что исходный файл существует
-    if [ ! -f "keenetic-audio-player-v2.go" ]; then
-        print_error "Файл keenetic-audio-player-v2.go не найден"
-        exit 1
-    fi
-    
-    echo "Компилирование для $ARCH_NAME..."
-    echo "Это может занять некоторое время..."
-    echo ""
-    
-    if [ "$GO_ARM" != "" ]; then
-        GOOS=linux GOARCH=$GO_ARCH GOARM=$GO_ARM go build -o audio-player keenetic-audio-player-v2.go
-    else
-        GOOS=linux GOARCH=$GO_ARCH go build -o audio-player keenetic-audio-player-v2.go
-    fi
-    
-    if [ ! -f "audio-player" ]; then
-        print_error "Компиляция не удалась"
-        exit 1
-    fi
-    
-    EXECUTABLE="$PWD/audio-player"
-    local size=$(du -h audio-player | cut -f1)
-    print_success "Компиляция завершена (размер: $size)"
-}
+    print_section "Загрузка приложения с GitHub"
 
+    local asset=""
+    case "$GO_ARCH:$GO_ARM" in
+        amd64:) asset="audio-player-linux-amd64" ;;
+        386:) asset="audio-player-linux-386" ;;
+        arm64:) asset="audio-player-linux-arm64" ;;
+        arm:5) asset="audio-player-linux-armv5" ;;
+        arm:6) asset="audio-player-linux-armv6" ;;
+        arm:7) asset="audio-player-linux-armv7" ;;
+        mipsle:*) asset="audio-player-linux-mipsle-$GO_MIPS" ;;
+        mips:*) asset="audio-player-linux-mips-$GO_MIPS" ;;
+        ppc64le:) asset="audio-player-linux-ppc64le" ;;
+        riscv64:) asset="audio-player-linux-riscv64" ;;
+        *) print_error "Для архитектуры $ARCH_NAME нет готовой сборки"; exit 1 ;;
+    esac
+
+    local url="https://github.com/phenomenonRT/keenetic-audio-player-v2/releases/latest/download/$asset"
+    local temp_file
+    temp_file=$(mktemp)
+    if ! curl -fL --retry 3 "$url" -o "$temp_file"; then
+        rm -f "$temp_file"
+        print_error "Не удалось загрузить $asset. Проверьте, что в GitHub опубликован Release."
+        exit 1
+    fi
+    if [ ! -s "$temp_file" ]; then
+        rm -f "$temp_file"
+        print_error "GitHub вернул пустой файл"
+        exit 1
+    fi
+    EXECUTABLE="$temp_file"
+    chmod +x "$EXECUTABLE"
+    print_success "Приложение загружено: $asset"
+}
 # Подготовка папок
 prepare_directories() {
     print_section "Подготовка папок"
@@ -250,6 +284,7 @@ install_files() {
     
     echo "Копирование приложения..."
     cp "$EXECUTABLE" "$INSTALL_DIR/audio-player"
+    rm -f "$EXECUTABLE"
     chmod +x "$INSTALL_DIR/audio-player"
     print_success "Приложение установлено"
     

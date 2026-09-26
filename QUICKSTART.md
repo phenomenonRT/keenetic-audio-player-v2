@@ -455,3 +455,17 @@ done
 - ✅ Создавайте собственные скрипты управления
 
 **Наслаждайтесь музыкой! 🎵**
+
+
+## Установка готовой сборки с GitHub
+
+Установщик загружает бинарник для Linux с последнего GitHub Release; Go на устройстве не требуется. Сначала опубликуйте релиз тегом вида v1.0.0, затем запустите:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/phenomenonRT/keenetic-audio-player-v2/main/install.sh -o install.sh
+bash install.sh
+```
+
+Опубликуйте тег командой `git tag v1.0.0` и отправьте его в GitHub командой `git push origin v1.0.0`. GitHub Actions соберёт бинарники и создаст Release автоматически.
+
+Поддерживаются также ARMv6, PowerPC 64-bit LE, RISC-V 64-bit и MIPS (включая MIPS 24KEc: mipsel soft-float). Для MIPS с FPU можно перед установкой задать `AUDIO_PLAYER_MIPS_FLOAT=hardfloat` в окружении.
