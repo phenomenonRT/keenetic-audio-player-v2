@@ -478,7 +478,7 @@ show_summary() {
     echo "   $INSTALL_DIR/audio-player"
     echo ""
     echo "2️⃣  ${CYAN}Откройте браузер:${NC}"
-    echo "   http://localhost:8080"
+    echo "   http://localhost:8181"
     echo ""
     echo "3️⃣  ${CYAN}Добавьте аудио файлы:${NC}"
     echo "   - Через веб-интерфейс (перетащите файлы)"

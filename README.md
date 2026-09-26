@@ -33,7 +33,7 @@ chmod +x install.sh
 #    - Способ автозапуска (crontab для роутера)
 
 # 3. Откройте браузер
-# http://192.168.1.1:8080
+# http://192.168.1.1:8181
 ```
 ## Установка готовой сборки с GitHub
 
@@ -220,7 +220,7 @@ GET /api/update-track?id=track_1234567890&name=New%20Name
 const (
     RELATIVE_MEDIA_DIR = "media"    // Название папки с музыкой
     RELATIVE_CONFIG    = "playlist.json" // Название файла плейлиста
-    PORT               = ":8080"    // Порт сервера
+    PORT               = ":8181"    // Порт сервера
 )
 ```
 
@@ -294,17 +294,17 @@ fetch('/api/stop');
 
 ```bash
 # Получить плейлист
-curl http://localhost:8080/api/playlist | jq
+curl http://localhost:8181/api/playlist | jq
 
 # Загрузить файл
 curl -F "audio=@song.mp3" -F "name=My Song" \
-  http://localhost:8080/api/add-track
+  http://localhost:8181/api/add-track
 
 # Воспроизвести
-curl "http://localhost:8080/api/play?id=track_123"
+curl "http://localhost:8181/api/play?id=track_123"
 
 # Остановить
-curl http://localhost:8080/api/stop
+curl http://localhost:8181/api/stop
 ```
 
 ## 🐛 Решение проблем
@@ -342,7 +342,7 @@ cat /opt/audio-player/logs/audio-player.log
 ps aux | grep audio-player
 
 # 4. Порт
-netstat -tulpn | grep 8080
+netstat -tulpn | grep 8181
 ```
 
 ### Проблема: Не удаётся загрузить файлы

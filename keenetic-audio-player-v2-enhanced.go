@@ -48,7 +48,7 @@ var appState = &AppState{
 
 const (
 	RELATIVE_MEDIA_DIR = "media"
-	PORT               = ":8080"
+	PORT               = ":8181"
 	VOICE_MAX_SIZE     = 50 << 20 // 50 МБ для голосовых сообщений
 )
 
@@ -490,7 +490,7 @@ func sendToRouter(filePath string, routerIP string, audioDevice string) {
 	defer file.Close()
 
 	resp, err := http.Post(
-		fmt.Sprintf("http://%s:8080/api/play-voice?device=%s", routerIP, audioDevice),
+		fmt.Sprintf("http://%s:8181/api/play-voice?device=%s", routerIP, audioDevice),
 		"audio/webm",
 		file,
 	)

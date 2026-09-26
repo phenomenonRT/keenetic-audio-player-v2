@@ -103,7 +103,7 @@ cmd_start() {
     if pgrep -f "$INSTALL_DIR/audio-player" > /dev/null 2>&1; then
         print_success "Приложение запущено"
         echo ""
-        echo "🌐 Откройте браузер: http://localhost:8080"
+        echo "🌐 Откройте браузер: http://localhost:8181"
     else
         print_error "Ошибка запуска приложения"
         echo "Проверьте логи: tail -f $INSTALL_DIR/logs/audio-player.log"
@@ -222,7 +222,7 @@ cmd_upload() {
     print_success "Файл загружен в $INSTALL_DIR/media/"
     
     # Отправляем запрос на обновление плейлиста
-    curl -s http://localhost:8080/api/playlist > /dev/null 2>&1 || true
+    curl -s http://localhost:8181/api/playlist > /dev/null 2>&1 || true
 }
 
 cmd_list_tracks() {
