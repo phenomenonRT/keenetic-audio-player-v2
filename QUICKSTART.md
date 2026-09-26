@@ -469,3 +469,8 @@ bash install.sh
 Опубликуйте тег командой `git tag v1.0.0` и отправьте его в GitHub командой `git push origin v1.0.0`. GitHub Actions соберёт бинарники и создаст Release автоматически.
 
 Поддерживаются также ARMv6, PowerPC 64-bit LE, RISC-V 64-bit и MIPS (включая MIPS 24KEc: mipsel soft-float). Для MIPS с FPU можно перед установкой задать `AUDIO_PLAYER_MIPS_FLOAT=hardfloat` в окружении.
+
+
+### Запуск сборки кнопкой на GitHub
+
+После отправки workflow в GitHub откройте вкладку **Actions**, выберите **Build and publish release**, нажмите **Run workflow**, укажите тег (например, `v1.0.0`) и подтвердите запуск. После сборки GitHub создаст Release с бинарниками для поддерживаемых архитектур. Тег также можно отправить командой `git push origin v1.0.0`.
