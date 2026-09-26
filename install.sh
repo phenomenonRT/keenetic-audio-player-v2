@@ -362,6 +362,13 @@ exec ./audio-player
 EOF
     chmod +x "$INSTALL_DIR/start.sh"
     print_success "Скрипт запуска создан"
+
+    if curl -fsSL --retry 3 "https://raw.githubusercontent.com/phenomenonRT/keenetic-audio-player-v2/main/uninstall.sh" -o "$INSTALL_DIR/uninstall.sh"; then
+        chmod +x "$INSTALL_DIR/uninstall.sh"
+        print_success "Деинсталлятор установлен: $INSTALL_DIR/uninstall.sh"
+    else
+        print_warning "Не удалось скачать деинсталлятор; его можно запустить отдельно из репозитория"
+    fi
     
     # Создаём пустой плейлист
     echo '{"items":[]}' > "$CONFIG_FILE"
@@ -592,6 +599,15 @@ EOF
     print_success "Init.d скрипт установлен"
 }
 
+# Найти IPv4-адреса устройства для доступа из локальной сети.
+get_router_ips() {
+    if command -v ip >/dev/null 2>&1; then
+        ip addr show 2>/dev/null | awk '$1 == "inet" { split($2, a, "/"); if (a[1] !~ /^127\./) print a[1] }'
+    elif command -v ifconfig >/dev/null 2>&1; then
+        ifconfig 2>/dev/null | awk '/inet addr:/ { sub("addr:", "", $2); print $2 } /inet / && $2 ~ /^[0-9]+\./ { print $2 }'
+    fi
+}
+
 # Показ информации об установке
 show_summary() {
     print_section "Установка завершена! 🎉"
@@ -614,8 +630,16 @@ show_summary() {
     echo "1️⃣  ${CYAN}Запустите приложение:${NC}"
     echo "   $INSTALL_DIR/audio-player"
     echo ""
-    echo "2️⃣  ${CYAN}Откройте браузер:${NC}"
-    echo "   http://localhost:8181"
+    echo "2️⃣  ${CYAN}Откройте браузер с компьютера или телефона:${NC}"
+    router_ips=$(get_router_ips)
+    if [ -n "$router_ips" ]; then
+        for router_ip in $router_ips; do
+            echo "   http://$router_ip:8181"
+        done
+    else
+        echo "   http://<IP-адрес-роутера>:8181"
+        echo "   Например: http://192.168.1.1:8181"
+    fi
     echo ""
     echo "3️⃣  ${CYAN}Добавьте аудио файлы:${NC}"
     echo "   - Через веб-интерфейс (перетащите файлы)"
@@ -633,8 +657,8 @@ show_summary() {
     echo "   # Просмотреть логи"
     echo "   tail -f $INSTALL_DIR/logs/audio-player.log"
     echo ""
-    echo "   # Удаление (если нужно)"
-    echo "   rm -rf $INSTALL_DIR"
+    echo "   # Удаление приложения и его данных"
+    echo "   $INSTALL_DIR/uninstall.sh"
     echo ""
 }
 

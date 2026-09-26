@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -1450,6 +1451,44 @@ func getHTMLContent() string {
 </html>`
 }
 
+func getRouterIPv4Addresses() []string {
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		return nil
+	}
+
+	addresses := make([]string, 0)
+	seen := make(map[string]bool)
+	for _, networkInterface := range interfaces {
+		if networkInterface.Flags&net.FlagUp == 0 || networkInterface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		interfaceAddresses, err := networkInterface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, interfaceAddress := range interfaceAddresses {
+			var ip net.IP
+			switch address := interfaceAddress.(type) {
+			case *net.IPNet:
+				ip = address.IP.To4()
+			case *net.IPAddr:
+				ip = address.IP.To4()
+			}
+			if ip == nil || ip.IsLoopback() {
+				continue
+			}
+			text := ip.String()
+			if !seen[text] {
+				seen[text] = true
+				addresses = append(addresses, text)
+			}
+		}
+	}
+	sort.Strings(addresses)
+	return addresses
+}
+
 func main() {
 	http.HandleFunc("/api/playlist", handleGetPlaylist)
 	http.HandleFunc("/api/add-track", handleAddTrack)
@@ -1464,7 +1503,14 @@ func main() {
 	fmt.Println("\n╔════════════════════════════════════════════════════════════╗")
 	fmt.Println("║     🎵 Keenetic Audio Player v2.0+ with PTT              ║")
 	fmt.Println("╚════════════════════════════════════════════════════════════╝")
-	fmt.Printf("\n🌐 Web Interface: http://0.0.0.0%s\n", PORT)
+	fmt.Println("\n🌐 Open the web interface from a device on the router network:")
+	if addresses := getRouterIPv4Addresses(); len(addresses) > 0 {
+		for _, address := range addresses {
+			fmt.Printf("   http://%s%s\n", address, PORT)
+		}
+	} else {
+		fmt.Printf("   http://<router-IP>%s\n", PORT)
+	}
 	fmt.Printf("📁 Media Directory: %s\n", appState.mediaDir)
 	fmt.Printf("📊 Installation Dir: %s\n\n", appState.installDir)
 

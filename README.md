@@ -33,7 +33,7 @@ chmod +x install.sh
 #    - Способ автозапуска (crontab для роутера)
 
 # 3. Откройте браузер
-# http://192.168.1.1:8181
+# Откройте с компьютера или телефона: http://192.168.1.1:8181
 ```
 ## Установка готовой сборки с GitHub
 
@@ -44,6 +44,18 @@ curl -fsSL https://raw.githubusercontent.com/phenomenonRT/keenetic-audio-player-
 ```
 
 На Keenetic с Entware установщик автоматически обнаруживает `/opt/etc/init.d/rc.unslung` и добавляет `S99audio-player` в `/opt/etc/init.d`. `rc.unslung` будет запускать плеер при старте Entware; `sudo` не нужен. Для ручного управления используйте `/opt/etc/init.d/S99audio-player start|stop|restart`.
+
+Чтобы удалить приложение вместе с настройками, музыкой и логами, в root-консоли роутера запустите:
+
+```sh
+/opt/audio-player/uninstall.sh
+```
+
+Деинсталлятор остановит Entware-автозапуск и попросит подтвердить удаление вводом `yes`. Удаление системных файлов выполняется без `sudo` из root-консоли. Для уже установленной старой версии, где деинсталлятора ещё нет, скачайте его так:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/phenomenonRT/keenetic-audio-player-v2/main/uninstall.sh -o /tmp/audio-player-uninstall.sh && sh /tmp/audio-player-uninstall.sh
+```
 
 Для установки конкретного релиза без запроса, например `v1.0.0`:
 
@@ -297,18 +309,21 @@ fetch('/api/stop');
 ### curl и API
 
 ```bash
+# Замените адрес на IP своего роутера
+PLAYER_URL=http://192.168.1.1:8181
+
 # Получить плейлист
-curl http://localhost:8181/api/playlist | jq
+curl "$PLAYER_URL/api/playlist" | jq
 
 # Загрузить файл
 curl -F "audio=@song.mp3" -F "name=My Song" \
-  http://localhost:8181/api/add-track
+  "$PLAYER_URL/api/add-track"
 
 # Воспроизвести
-curl "http://localhost:8181/api/play?id=track_123"
+curl "$PLAYER_URL/api/play?id=track_123"
 
 # Остановить
-curl http://localhost:8181/api/stop
+curl "$PLAYER_URL/api/stop"
 ```
 
 ## 🐛 Решение проблем

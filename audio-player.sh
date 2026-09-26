@@ -103,7 +103,13 @@ cmd_start() {
     if pgrep -f "$INSTALL_DIR/audio-player" > /dev/null 2>&1; then
         print_success "Приложение запущено"
         echo ""
-        echo "🌐 Откройте браузер: http://localhost:8181"
+        local router_ip
+        router_ip=$(ip addr show 2>/dev/null | awk '$1 == "inet" { split($2, a, "/"); if (a[1] !~ /^127\./) { print a[1]; exit } }')
+        if [ -n "$router_ip" ]; then
+            echo "🌐 Откройте браузер: http://$router_ip:8181"
+        else
+            echo "🌐 Откройте http://<IP-адрес-роутера>:8181 (например, http://192.168.1.1:8181)"
+        fi
     else
         print_error "Ошибка запуска приложения"
         echo "Проверьте логи: tail -f $INSTALL_DIR/logs/audio-player.log"
