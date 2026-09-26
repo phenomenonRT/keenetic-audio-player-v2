@@ -11,12 +11,53 @@ MEDIA_DIR=""
 CONFIG_FILE=""
 EXECUTABLE=""
 INTERACTIVE=0
+NETWORK_INTERFACE="${AUDIO_PLAYER_INTERFACE:-auto}"
+APP_PORT="${AUDIO_PLAYER_PORT:-8181}"
+BIND_ADDR="${AUDIO_PLAYER_BIND:-0.0.0.0}"
 OS_TYPE=$(uname -s)
 ARCH=$(uname -m)
 
-for arg in "$@"; do
-    case "$arg" in
-        -i|--interactive) INTERACTIVE=1 ;;
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -i|--interactive)
+            INTERACTIVE=1
+            shift
+            ;;
+        --interface|-if)
+            NETWORK_INTERFACE="$2"
+            shift 2
+            ;;
+        --interface=*)
+            NETWORK_INTERFACE="${1#*=}"
+            shift
+            ;;
+        --port|-p)
+            APP_PORT="$2"
+            shift 2
+            ;;
+        --port=*)
+            APP_PORT="${1#*=}"
+            shift
+            ;;
+        --bind)
+            BIND_ADDR="$2"
+            shift 2
+            ;;
+        --bind=*)
+            BIND_ADDR="${1#*=}"
+            shift
+            ;;
+        -h|--help)
+            echo "Использование: $0 [опции]"
+            echo "  -i, --interactive            Интерактивный выбор параметров установки"
+            echo "  --interface <iface>          Интерфейс домашней сети (br0, eth0, auto...)"
+            echo "  --port <port>                Порт веб-сервера (по умолчанию: 8181)"
+            echo "  --bind <addr>                Адрес привязки (по умолчанию: 0.0.0.0)"
+            exit 0
+            ;;
+        *)
+            shift
+            ;;
     esac
 done
 
@@ -181,6 +222,158 @@ choose_install_dir() {
     print_success "Папка установки: $INSTALL_DIR"
 }
 
+# Сетевые функции
+get_interface_ip() {
+    local iface="$1"
+    [ -n "$iface" ] || return 1
+    if command -v ip >/dev/null 2>&1; then
+        ip -4 addr show dev "$iface" 2>/dev/null | awk '$1 == "inet" { split($2, a, "/"); print a[1]; exit }'
+    elif command -v ifconfig >/dev/null 2>&1; then
+        ifconfig "$iface" 2>/dev/null | awk '/inet addr:/ { sub("addr:", "", $2); print $2; exit } /inet / && $2 ~ /^[0-9]+\./ { print $2; exit }'
+    fi
+}
+
+get_all_interfaces() {
+    if [ -d /sys/class/net ]; then
+        for dev in /sys/class/net/*; do
+            [ -e "$dev" ] || continue
+            dev_name=$(basename "$dev")
+            [ "$dev_name" != "lo" ] && echo "$dev_name"
+        done
+    elif command -v ip >/dev/null 2>&1; then
+        ip -o link show 2>/dev/null | awk -F': ' '{print $2}' | grep -v '^lo$'
+    elif command -v ifconfig >/dev/null 2>&1; then
+        ifconfig 2>/dev/null | grep -E '^[a-zA-Z0-9_-]+' | awk '{print $1}' | tr -d ':' | grep -v '^lo$'
+    fi
+}
+
+detect_home_network_ip() {
+    local target_iface="${1:-auto}"
+    local found_ip=""
+
+    if [ -n "$target_iface" ] && [ "$target_iface" != "auto" ]; then
+        found_ip=$(get_interface_ip "$target_iface")
+        if [ -n "$found_ip" ]; then
+            echo "$found_ip"
+            return 0
+        fi
+    fi
+
+    # 1. Keenetic Home Network bridge (br0)
+    found_ip=$(get_interface_ip "br0")
+    if [ -n "$found_ip" ]; then
+        echo "$found_ip"
+        return 0
+    fi
+
+    # 2. OpenWrt LAN bridge (br-lan)
+    found_ip=$(get_interface_ip "br-lan")
+    if [ -n "$found_ip" ]; then
+        echo "$found_ip"
+        return 0
+    fi
+
+    # 3. Маршрут по умолчанию (default dev)
+    if command -v ip >/dev/null 2>&1; then
+        default_dev=$(ip route show 2>/dev/null | awk '/^default/ { for (i=1; i<=NF; i++) if ($i == "dev") print $(i+1) }' | head -n1)
+        if [ -n "$default_dev" ]; then
+            found_ip=$(get_interface_ip "$default_dev")
+            if [ -n "$found_ip" ]; then
+                echo "$found_ip"
+                return 0
+            fi
+        fi
+    fi
+
+    # 4. Первый не-loopback интерфейс с приватным диапазоном IP
+    for iface in $(get_all_interfaces); do
+        ip_cand=$(get_interface_ip "$iface")
+        case "$ip_cand" in
+            192.168.*|10.*|172.1[6-9].*|172.2[0-9].*|172.3[0-1].*)
+                echo "$ip_cand"
+                return 0
+                ;;
+        esac
+    done
+
+    # 5. Любой активный не-loopback IP
+    for iface in $(get_all_interfaces); do
+        ip_cand=$(get_interface_ip "$iface")
+        if [ -n "$ip_cand" ] && [ "$ip_cand" != "127.0.0.1" ]; then
+            echo "$ip_cand"
+            return 0
+        fi
+    done
+
+    # Запасное значение по умолчанию для Keenetic
+    echo "192.168.1.1"
+}
+
+choose_network_interface() {
+    print_section "Настройка сети и интерфейса"
+
+    local ifaces=""
+    if command -v sort >/dev/null 2>&1; then
+        ifaces=$(get_all_interfaces | sort -u)
+    else
+        ifaces=$(get_all_interfaces)
+    fi
+
+    if [ $INTERACTIVE -eq 1 ]; then
+        echo "Сервер слушает на 0.0.0.0 (всегда доступны и домашняя сеть, и localhost)."
+        echo "Выберите интерфейс домашней сети для отображения и привязки:"
+        echo ""
+        echo "1) auto - Автоопределение (br0 / br-lan / LAN IP) [рекомендуется для Keenetic]"
+
+        idx=2
+        for iface in $ifaces; do
+            ip_val=$(get_interface_ip "$iface")
+            note=""
+            if [ "$iface" = "br0" ]; then
+                note=" (Домашняя сеть Keenetic)"
+            elif [ "$iface" = "br-lan" ]; then
+                note=" (Домашняя сеть OpenWrt)"
+            fi
+            if [ -n "$ip_val" ]; then
+                echo "$idx) $iface - IP: $ip_val$note"
+            else
+                echo "$idx) $iface$note"
+            fi
+            eval "iface_choice_$idx=\"$iface\""
+            idx=$((idx + 1))
+        done
+        echo "$idx) Ввести имя интерфейса или IP вручную..."
+        custom_idx=$idx
+
+        printf '%s' "Выберите вариант (1-$custom_idx) [1]: "
+        IFS= read -r if_choice || if_choice=""
+
+        if [ "$if_choice" = "$custom_idx" ]; then
+            printf '%s' "Введите имя интерфейса (например, br0 или eth0): "
+            IFS= read -r manual_if || manual_if=""
+            [ -n "$manual_if" ] && NETWORK_INTERFACE="$manual_if"
+        elif [ -n "$if_choice" ] && [ "$if_choice" -gt 1 ] && [ "$if_choice" -lt "$custom_idx" ] 2>/dev/null; then
+            sel_if=$(eval "echo \"\$iface_choice_$if_choice\"")
+            [ -n "$sel_if" ] && NETWORK_INTERFACE="$sel_if"
+        else
+            NETWORK_INTERFACE="auto"
+        fi
+
+        printf '%s' "Порт веб-интерфейса [$APP_PORT]: "
+        IFS= read -r user_p || user_p=""
+        if [ -n "$user_p" ]; then
+            APP_PORT="$user_p"
+        fi
+    fi
+
+    detected_home_ip=$(detect_home_network_ip "$NETWORK_INTERFACE")
+    print_success "Интерфейс: $NETWORK_INTERFACE"
+    print_success "IP домашней сети: $detected_home_ip"
+    print_success "Порт: $APP_PORT"
+    print_success "Локальный доступ (localhost / 127.0.0.1): включён обязательно"
+}
+
+
 # Проверка требований
 check_requirements() {
     print_section "Проверка компонентов"
@@ -332,11 +525,29 @@ install_files() {
     rm -f "$EXECUTABLE"
     chmod +x "$INSTALL_DIR/audio-player"
     print_success "Приложение установлено"
+
+    # Создаём файл конфигурации сети
+    cat > "$INSTALL_DIR/audio-player.conf" << EOF
+# 🎵 Keenetic Audio Player - Конфигурация сети
+# Сетевой интерфейс для домашней сети (auto, br0, br-lan, eth0 и др.)
+# При значении "auto" плеер автоматически определяет интерфейс домашней сети (br0 на Keenetic)
+NETWORK_INTERFACE="$NETWORK_INTERFACE"
+
+# Порт веб-сервера (по умолчанию 8181)
+PORT="$APP_PORT"
+
+# Адрес привязки (по умолчанию 0.0.0.0 для одновременного доступа через домашнюю сеть и localhost)
+BIND_ADDR="$BIND_ADDR"
+EOF
+    chmod 644 "$INSTALL_DIR/audio-player.conf"
+    print_success "Конфигурация сети: $INSTALL_DIR/audio-player.conf"
     
     # Создаём скрипт запуска
     cat > "$INSTALL_DIR/start.sh" << 'EOF'
 #!/bin/sh
 cd "$(dirname "$0")"
+[ -f "./audio-player.conf" ] && . ./audio-player.conf
+export NETWORK_INTERFACE PORT BIND_ADDR
 exec ./audio-player
 EOF
     chmod +x "$INSTALL_DIR/start.sh"
@@ -425,6 +636,8 @@ start_player() {
     fi
     mkdir -p "$INSTALL_DIR/logs"
     cd "$INSTALL_DIR" || return 1
+    [ -f "$INSTALL_DIR/audio-player.conf" ] && . "$INSTALL_DIR/audio-player.conf"
+    export NETWORK_INTERFACE PORT BIND_ADDR
     ./audio-player >> "$LOG_FILE" 2>&1 &
     echo "$!" > "$PID_FILE"
     echo "Audio Player started (PID $(cat "$PID_FILE"))"
@@ -478,6 +691,7 @@ Wants=network-online.target
 Type=simple
 User=root
 WorkingDirectory=$INSTALL_DIR
+EnvironmentFile=-$INSTALL_DIR/audio-player.conf
 ExecStart=$INSTALL_DIR/audio-player
 Restart=on-failure
 RestartSec=5
