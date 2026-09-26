@@ -92,21 +92,41 @@ detect_system() {
             GO_ARM="6"
             ARCH_NAME="ARM6"
             ;;
-        mipsel|mipsle)
-            GO_ARCH="mipsle"
-            GO_MIPS="${AUDIO_PLAYER_MIPS_FLOAT:-softfloat}"
-            ARCH_NAME="MIPS little-endian (24KEc/soft-float)"
-            ;;
-        mips)
-            # Some MIPS kernels report only "mips" even on little-endian devices.
-            if [ "$(printf '\001\000\000\000' | od -An -tu4 | tr -d ' ')" = "1" ]; then
-                GO_ARCH="mipsle"
-                ARCH_NAME="MIPS little-endian (24KEc/soft-float)"
-            else
-                GO_ARCH="mips"
-                ARCH_NAME="MIPS big-endian (soft-float)"
+        mipsel|mipsle|mips)
+            opkg_arches=""
+            if command -v opkg >/dev/null 2>&1; then
+                opkg_arches=$(opkg print-architecture 2>/dev/null || true)
+            elif [ -x /opt/bin/opkg ]; then
+                opkg_arches=$(/opt/bin/opkg print-architecture 2>/dev/null || true)
             fi
-            GO_MIPS="${AUDIO_PLAYER_MIPS_FLOAT:-softfloat}"
+            case "$opkg_arches" in
+                *mipselsf*) GO_ARCH="mipsle"; GO_MIPS="softfloat" ;;
+                *mipselhf*) GO_ARCH="mipsle"; GO_MIPS="hardfloat" ;;
+                *mipssf*) GO_ARCH="mips"; GO_MIPS="softfloat" ;;
+                *mipshf*) GO_ARCH="mips"; GO_MIPS="hardfloat" ;;
+                *mipsel*) GO_ARCH="mipsle"; GO_MIPS="softfloat" ;;
+                *)
+                    if [ "$ARCH" = "mipsel" ] || [ "$ARCH" = "mipsle" ]; then
+                        GO_ARCH="mipsle"
+                    elif [ "$(printf '\001\000\000\000' | od -An -tu4 | tr -d ' ')" = "1" ]; then
+                        GO_ARCH="mipsle"
+                    else
+                        GO_ARCH="mips"
+                    fi
+                    GO_MIPS="softfloat"
+                    ;;
+            esac
+            if [ -n "${AUDIO_PLAYER_MIPS_FLOAT:-}" ]; then
+                GO_MIPS="$AUDIO_PLAYER_MIPS_FLOAT"
+            fi
+            case "$GO_MIPS" in
+                softfloat|hardfloat) ;;
+                *) print_error "AUDIO_PLAYER_MIPS_FLOAT должен быть softfloat или hardfloat"; exit 1 ;;
+            esac
+            case "$GO_ARCH:$GO_MIPS" in
+                mipsle:*) ARCH_NAME="MIPS little-endian ($GO_MIPS)" ;;
+                mips:*) ARCH_NAME="MIPS big-endian ($GO_MIPS)" ;;
+            esac
             ;;
         ppc64le)
             GO_ARCH="ppc64le"
@@ -268,6 +288,30 @@ compile_app() {
         print_error "GitHub вернул пустой файл"
         exit 1
     fi
+
+    case "$GO_ARCH" in
+        386) expected_class="01"; expected_endian="01"; expected_machine="0300" ;;
+        amd64) expected_class="02"; expected_endian="01"; expected_machine="3e00" ;;
+        arm) expected_class="01"; expected_endian="01"; expected_machine="2800" ;;
+        arm64) expected_class="02"; expected_endian="01"; expected_machine="b700" ;;
+        mipsle) expected_class="01"; expected_endian="01"; expected_machine="0800" ;;
+        mips) expected_class="01"; expected_endian="02"; expected_machine="0008" ;;
+        ppc64le) expected_class="02"; expected_endian="01"; expected_machine="1500" ;;
+        riscv64) expected_class="02"; expected_endian="01"; expected_machine="f300" ;;
+    esac
+    if command -v od >/dev/null 2>&1 && command -v cut >/dev/null 2>&1; then
+        elf_header=$(od -An -tx1 -N20 "$temp_file" 2>/dev/null | tr -d ' \n')
+        elf_magic=$(printf '%s' "$elf_header" | cut -c1-8)
+        elf_class=$(printf '%s' "$elf_header" | cut -c9-10)
+        elf_endian=$(printf '%s' "$elf_header" | cut -c11-12)
+        elf_machine=$(printf '%s' "$elf_header" | cut -c37-40)
+        if [ "$elf_magic" != "7f454c46" ] || [ "$elf_class" != "$expected_class" ] || [ "$elf_endian" != "$expected_endian" ] || [ "$elf_machine" != "$expected_machine" ]; then
+            rm -f "$temp_file"
+            print_error "Релиз содержит бинарник не для этой архитектуры ($ARCH_NAME); установка остановлена."
+            exit 1
+        fi
+    fi
+
     EXECUTABLE="$temp_file"
     chmod +x "$EXECUTABLE"
     print_success "Приложение загружено: $asset (релиз $release_tag)"
