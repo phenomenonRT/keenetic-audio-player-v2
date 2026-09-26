@@ -71,6 +71,19 @@ if command -v crontab >/dev/null 2>&1; then
     fi
 fi
 
+if [ -f "$INSTALL_DIR/audio-player.pid" ]; then
+    PID=$(cat "$INSTALL_DIR/audio-player.pid" 2>/dev/null || true)
+    case "$PID" in
+        ''|*[!0-9]*) ;;
+        *)
+            kill "$PID" 2>/dev/null || true
+            sleep 1
+            kill -9 "$PID" 2>/dev/null || true
+            ;;
+    esac
+fi
+pkill -f "$INSTALL_DIR/audio-player" 2>/dev/null || true
+
 rm -f "$INSTALL_DIR/audio-player.pid"
 rm -rf "$INSTALL_DIR"
 echo "Audio Player удалён."

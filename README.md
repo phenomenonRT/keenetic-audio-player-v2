@@ -230,19 +230,19 @@ GET /api/update-track?id=track_1234567890&name=New%20Name
 
 ### Изменение параметров
 
-Отредактируйте исходный код (`keenetic-audio-player-v2.go`):
+Отредактируйте исходный код (`keenetic-audio-player-v2-enhanced.go`):
 
 ```go
 const (
-    RELATIVE_MEDIA_DIR = "media"    // Название папки с музыкой
+    RELATIVE_MEDIA_DIR = "media"         // Название папки с музыкой
     RELATIVE_CONFIG    = "playlist.json" // Название файла плейлиста
-    PORT               = ":8181"    // Порт сервера
+    PORT               = ":8181"         // Порт сервера
 )
 ```
 
 Затем пересоберите:
 ```bash
-GOOS=linux GOARCH=arm GOARM=7 go build -o audio-player keenetic-audio-player-v2.go
+GOOS=linux GOARCH=arm GOARM=7 go build -o audio-player keenetic-audio-player-v2-enhanced.go
 ```
 
 ## 🖥️ Управление из командной строки
@@ -419,22 +419,22 @@ touch /opt/audio-player/playlist.json
 
 ```bash
 # ARM7 (новые Keenetic)
-GOOS=linux GOARCH=arm GOARM=7 go build -o audio-player keenetic-audio-player-v2.go
+GOOS=linux GOARCH=arm GOARM=7 go build -o audio-player keenetic-audio-player-v2-enhanced.go
 
 # ARM5 (старые Keenetic)
-GOOS=linux GOARCH=arm GOARM=5 go build -o audio-player keenetic-audio-player-v2.go
+GOOS=linux GOARCH=arm GOARM=5 go build -o audio-player keenetic-audio-player-v2-enhanced.go
 
 # ARM64 (современные системы)
-GOOS=linux GOARCH=arm64 go build -o audio-player keenetic-audio-player-v2.go
+GOOS=linux GOARCH=arm64 go build -o audio-player keenetic-audio-player-v2-enhanced.go
 
 # x86_64 (ПК/серверы)
-GOOS=linux GOARCH=amd64 go build -o audio-player keenetic-audio-player-v2.go
+GOOS=linux GOARCH=amd64 go build -o audio-player keenetic-audio-player-v2-enhanced.go
 
 # macOS ARM64
-GOOS=darwin GOARCH=arm64 go build -o audio-player keenetic-audio-player-v2.go
+GOOS=darwin GOARCH=arm64 go build -o audio-player keenetic-audio-player-v2-enhanced.go
 
 # macOS x86_64
-GOOS=darwin GOARCH=amd64 go build -o audio-player keenetic-audio-player-v2.go
+GOOS=darwin GOARCH=amd64 go build -o audio-player keenetic-audio-player-v2-enhanced.go
 ```
 
 ## 📝 Лицензия

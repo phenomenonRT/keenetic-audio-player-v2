@@ -203,10 +203,15 @@ check_requirements() {
     player_found=0
     
     if command -v ffplay >/dev/null 2>&1; then
-        print_success "ffplay установлен (лучший выбор)"
+        print_success "ffplay установлен"
         player_found=1
     fi
     
+    if command -v ffmpeg >/dev/null 2>&1; then
+        print_success "ffmpeg установлен"
+        player_found=1
+    fi
+
     if command -v aplay >/dev/null 2>&1; then
         print_success "aplay установлен"
         player_found=1
@@ -216,13 +221,18 @@ check_requirements() {
         print_success "mpg123 установлен"
         player_found=1
     fi
+
+    if command -v mpv >/dev/null 2>&1; then
+        print_success "mpv установлен"
+        player_found=1
+    fi
     
     if [ $player_found -eq 0 ]; then
         print_warning "Плеер не найден"
-        echo "Установите один из них:"
-        echo "  На Keenetic: opkg install ffmpeg"
-        echo "  На Ubuntu/Debian: sudo apt install ffmpeg"
-        echo "  На CentOS: sudo yum install ffmpeg"
+        echo "Установите компоненты для воспроизведения:"
+        echo "  На Keenetic (Entware): opkg install ffmpeg alsa-utils mpg123"
+        echo "  На Ubuntu/Debian:      sudo apt install ffmpeg alsa-utils mpg123"
+        echo "  На CentOS/RHEL:        sudo yum install ffmpeg alsa-utils mpg123"
         missing=$((missing + 1))
     fi
     
@@ -363,7 +373,22 @@ EOF
     chmod +x "$INSTALL_DIR/start.sh"
     print_success "Скрипт запуска создан"
 
-    if curl -fsSL --retry 3 "https://raw.githubusercontent.com/phenomenonRT/keenetic-audio-player-v2/main/uninstall.sh" -o "$INSTALL_DIR/uninstall.sh"; then
+    # Устанавливаем audio-player.sh
+    if [ -f "$(dirname "$0")/audio-player.sh" ]; then
+        cp "$(dirname "$0")/audio-player.sh" "$INSTALL_DIR/audio-player.sh"
+        chmod +x "$INSTALL_DIR/audio-player.sh"
+        print_success "Менеджер установлен: $INSTALL_DIR/audio-player.sh"
+    elif curl -fsSL --retry 3 "https://raw.githubusercontent.com/phenomenonRT/keenetic-audio-player-v2/main/audio-player.sh" -o "$INSTALL_DIR/audio-player.sh"; then
+        chmod +x "$INSTALL_DIR/audio-player.sh"
+        print_success "Менеджер установлен: $INSTALL_DIR/audio-player.sh"
+    fi
+
+    # Устанавливаем uninstall.sh
+    if [ -f "$(dirname "$0")/uninstall.sh" ]; then
+        cp "$(dirname "$0")/uninstall.sh" "$INSTALL_DIR/uninstall.sh"
+        chmod +x "$INSTALL_DIR/uninstall.sh"
+        print_success "Деинсталлятор установлен: $INSTALL_DIR/uninstall.sh"
+    elif curl -fsSL --retry 3 "https://raw.githubusercontent.com/phenomenonRT/keenetic-audio-player-v2/main/uninstall.sh" -o "$INSTALL_DIR/uninstall.sh"; then
         chmod +x "$INSTALL_DIR/uninstall.sh"
         print_success "Деинсталлятор установлен: $INSTALL_DIR/uninstall.sh"
     else

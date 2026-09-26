@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 # 🎵 Audio Player Manager
 # Управление установленным приложением
@@ -22,6 +22,8 @@ else
     exit 1
 fi
 
+PID_FILE="$INSTALL_DIR/audio-player.pid"
+
 # Цвета
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -33,33 +35,33 @@ NC='\033[0m'
 # Функции
 
 print_header() {
-    echo -e "${CYAN}"
+    printf '%b\n' "${CYAN}"
     echo "╔════════════════════════════════════════════════════════════╗"
     echo "║          🎵 Audio Player Manager                           ║"
     echo "╚════════════════════════════════════════════════════════════╝"
-    echo -e "${NC}"
+    printf '%b\n' "${NC}"
     echo "Установка: $INSTALL_DIR"
     echo ""
 }
 
 print_help() {
     print_header
-    echo -e "${YELLOW}Доступные команды:${NC}"
+    printf '%b\n' "${YELLOW}Доступные команды:${NC}"
     echo ""
-    echo "  ${CYAN}start${NC}              - Запустить приложение"
-    echo "  ${CYAN}stop${NC}               - Остановить приложение"
-    echo "  ${CYAN}restart${NC}            - Перезагрузить приложение"
-    echo "  ${CYAN}status${NC}             - Показать статус"
-    echo "  ${CYAN}logs${NC}               - Просмотр логов (последние 20 строк)"
-    echo "  ${CYAN}logs-follow${NC}        - Просмотр логов в реальном времени"
-    echo "  ${CYAN}upload <file>${NC}      - Загрузить аудио файл"
-    echo "  ${CYAN}list-tracks${NC}        - Список всех треков в плейлисте"
-    echo "  ${CYAN}clear-tracks${NC}       - Очистить плейлист (опасно!)"
-    echo "  ${CYAN}info${NC}               - Информация об установке"
-    echo "  ${CYAN}uninstall${NC}          - Удалить приложение"
-    echo "  ${CYAN}help${NC}               - Эта справка"
+    echo "  start              - Запустить приложение"
+    echo "  stop               - Остановить приложение"
+    echo "  restart            - Перезагрузить приложение"
+    echo "  status             - Показать статус"
+    echo "  logs               - Просмотр логов (последние 20 строк)"
+    echo "  logs-follow        - Просмотр логов в реальном времени"
+    echo "  upload <file>      - Загрузить аудио файл"
+    echo "  list-tracks        - Список всех треков в плейлисте"
+    echo "  clear-tracks       - Очистить плейлист (опасно!)"
+    echo "  info               - Информация об установке"
+    echo "  uninstall          - Удалить приложение"
+    echo "  help               - Эта справка"
     echo ""
-    echo -e "${YELLOW}Примеры:${NC}"
+    printf '%b\n' "${YELLOW}Примеры:${NC}"
     echo ""
     echo "  $0 start"
     echo "  $0 upload ~/music/song.mp3"
@@ -69,19 +71,38 @@ print_help() {
 }
 
 print_success() {
-    echo -e "${GREEN}✅ $1${NC}"
+    printf '%b\n' "${GREEN}✅ $1${NC}"
 }
 
 print_error() {
-    echo -e "${RED}❌ $1${NC}"
+    printf '%b\n' "${RED}❌ $1${NC}"
 }
 
 print_info() {
-    echo -e "${CYAN}ℹ️  $1${NC}"
+    printf '%b\n' "${CYAN}ℹ️  $1${NC}"
 }
 
 print_warning() {
-    echo -e "${YELLOW}⚠️  $1${NC}"
+    printf '%b\n' "${YELLOW}⚠️  $1${NC}"
+}
+
+is_running() {
+    if [ -f "$PID_FILE" ]; then
+        pid=$(cat "$PID_FILE" 2>/dev/null || true)
+        case "$pid" in
+            ''|0|*[!0-9]*) rm -f "$PID_FILE" ;;
+            *)
+                if kill -0 "$pid" 2>/dev/null; then
+                    return 0
+                fi
+                rm -f "$PID_FILE"
+                ;;
+        esac
+    fi
+    if command -v pgrep >/dev/null 2>&1; then
+        pgrep -f "$INSTALL_DIR/audio-player" >/dev/null 2>&1 && return 0
+    fi
+    return 1
 }
 
 # Команды
@@ -90,21 +111,27 @@ cmd_start() {
     print_header
     print_info "Запуск приложения..."
     
-    if pgrep -f "$INSTALL_DIR/audio-player" > /dev/null 2>&1; then
+    if is_running; then
         print_warning "Приложение уже запущено"
         return 0
     fi
     
+    mkdir -p "$INSTALL_DIR/logs"
     cd "$INSTALL_DIR"
     nohup ./audio-player >> logs/audio-player.log 2>&1 &
+    echo "$!" > "$PID_FILE"
     
     sleep 2
     
-    if pgrep -f "$INSTALL_DIR/audio-player" > /dev/null 2>&1; then
-        print_success "Приложение запущено"
+    if is_running; then
+        print_success "Приложение запущено (PID $(cat "$PID_FILE" 2>/dev/null || true))"
         echo ""
-        local router_ip
-        router_ip=$(ip addr show 2>/dev/null | awk '$1 == "inet" { split($2, a, "/"); if (a[1] !~ /^127\./) { print a[1]; exit } }')
+        local router_ip=""
+        if command -v ip >/dev/null 2>&1; then
+            router_ip=$(ip addr show 2>/dev/null | awk '$1 == "inet" { split($2, a, "/"); if (a[1] !~ /^127\./) { print a[1]; exit } }')
+        elif command -v ifconfig >/dev/null 2>&1; then
+            router_ip=$(ifconfig 2>/dev/null | awk '/inet addr:/ { sub("addr:", "", $2); print $2; exit } /inet / && $2 ~ /^[0-9]+\./ { print $2; exit }')
+        fi
         if [ -n "$router_ip" ]; then
             echo "🌐 Откройте браузер: http://$router_ip:8181"
         else
@@ -121,20 +148,30 @@ cmd_stop() {
     print_header
     print_info "Остановка приложения..."
     
-    if ! pgrep -f "$INSTALL_DIR/audio-player" > /dev/null 2>&1; then
+    if ! is_running; then
         print_warning "Приложение не запущено"
+        rm -f "$PID_FILE"
         return 0
     fi
     
-    pkill -f "$INSTALL_DIR/audio-player"
-    sleep 1
-    
-    if pgrep -f "$INSTALL_DIR/audio-player" > /dev/null 2>&1; then
-        pkill -9 -f "$INSTALL_DIR/audio-player"
-        sleep 1
+    if [ -f "$PID_FILE" ]; then
+        pid=$(cat "$PID_FILE" 2>/dev/null || true)
+        if [ -n "$pid" ]; then
+            kill "$pid" 2>/dev/null || true
+            sleep 1
+            if kill -0 "$pid" 2>/dev/null; then
+                kill -9 "$pid" 2>/dev/null || true
+                sleep 1
+            fi
+        fi
+        rm -f "$PID_FILE"
     fi
     
-    if ! pgrep -f "$INSTALL_DIR/audio-player" > /dev/null 2>&1; then
+    if command -v pkill >/dev/null 2>&1; then
+        pkill -f "$INSTALL_DIR/audio-player" 2>/dev/null || true
+    fi
+    
+    if ! is_running; then
         print_success "Приложение остановлено"
     else
         print_error "Не удалось остановить приложение"
@@ -151,13 +188,16 @@ cmd_restart() {
 cmd_status() {
     print_header
     
-    if pgrep -f "$INSTALL_DIR/audio-player" > /dev/null 2>&1; then
-        echo -e "${GREEN}✅ Статус: ЗАПУЩЕНО${NC}"
+    if is_running; then
+        printf '%b\n' "${GREEN}✅ Статус: ЗАПУЩЕНО${NC}"
         echo ""
         echo "Информация о процессе:"
-        ps aux | grep "$INSTALL_DIR/audio-player" | grep -v grep | awk '{print "  PID: " $2 ", CPU: " $3 "%, MEM: " $4 "%"}'
+        if [ -f "$PID_FILE" ]; then
+            echo "  PID: $(cat "$PID_FILE" 2>/dev/null || true)"
+        fi
+        ps aux 2>/dev/null | grep "$INSTALL_DIR/audio-player" | grep -v grep | awk '{print "  PID: " $2 ", CPU: " $3 "%, MEM: " $4 "%"}' || true
     else
-        echo -e "${RED}⏹️  Статус: ОСТАНОВЛЕНО${NC}"
+        printf '%b\n' "${RED}⏹️  Статус: ОСТАНОВЛЕНО${NC}"
     fi
     
     echo ""
@@ -207,7 +247,7 @@ cmd_logs_follow() {
 }
 
 cmd_upload() {
-    local file="$2"
+    local file="${2:-}"
     
     if [ -z "$file" ]; then
         print_error "Укажите файл для загрузки"
@@ -223,6 +263,7 @@ cmd_upload() {
     print_header
     print_info "Загрузка файла: $(basename "$file")"
     
+    mkdir -p "$INSTALL_DIR/media"
     cp "$file" "$INSTALL_DIR/media/"
     
     print_success "Файл загружен в $INSTALL_DIR/media/"
@@ -242,41 +283,49 @@ cmd_list_tracks() {
     echo "Треки в плейлисте:"
     echo ""
     
-    # Простой парсинг JSON для вывода
-    grep -o '"name":"[^"]*"' "$INSTALL_DIR/playlist.json" | cut -d'"' -f4 | nl
+    # Надёжный парсинг JSON с пробелами или без
+    grep -E '"name"[[:space:]]*:[[:space:]]*"[^"]*"' "$INSTALL_DIR/playlist.json" 2>/dev/null | sed -E 's/.*"name"[[:space:]]*:[[:space:]]*"([^"]*)".*/\1/' | nl || true
 }
 
 cmd_clear_tracks() {
     print_header
     print_warning "Это удалит все треки из плейлиста!"
     echo ""
-    read -p "Вы уверены? (y/N): " -n 1 -r
+    printf '%s' "Вы уверены? (y/N): "
+    IFS= read -r REPLY || REPLY=""
     echo
     
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        print_info "Отмено"
-        return 0
-    fi
+    case "$REPLY" in
+        y|Y) ;;
+        *)
+            print_info "Отменено"
+            return 0
+            ;;
+    esac
     
     # Очищаем плейлист
     echo '{"items":[]}' > "$INSTALL_DIR/playlist.json"
     
     # Опционально удаляем файлы
-    read -p "Удалить также файлы? (y/N): " -n 1 -r
+    printf '%s' "Удалить также аудиофайлы из папки media? (y/N): "
+    IFS= read -r REPLY || REPLY=""
     echo
     
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        rm -f "$INSTALL_DIR/media"/*
-        print_success "Файлы удалены"
-    fi
+    case "$REPLY" in
+        y|Y)
+            rm -f "$INSTALL_DIR/media"/* 2>/dev/null || true
+            print_success "Файлы удалены"
+            ;;
+    esac
     
+    curl -s http://localhost:8181/api/playlist > /dev/null 2>&1 || true
     print_success "Плейлист очищен"
 }
 
 cmd_info() {
     print_header
     
-    echo -e "${CYAN}Информация об установке:${NC}"
+    printf '%b\n' "${CYAN}Информация об установке:${NC}"
     echo ""
     echo "📍 Главная папка: $INSTALL_DIR"
     echo "📁 Медиа файлы: $INSTALL_DIR/media"
@@ -285,7 +334,7 @@ cmd_info() {
     echo "🔧 Приложение: $INSTALL_DIR/audio-player"
     echo ""
     
-    echo -e "${CYAN}Системная информация:${NC}"
+    printf '%b\n' "${CYAN}Системная информация:${NC}"
     echo ""
     
     if command -v uname > /dev/null; then
@@ -298,8 +347,7 @@ cmd_info() {
     fi
     
     echo ""
-    
-    echo -e "${CYAN}Проверка компонентов:${NC}"
+    printf '%b\n' "${CYAN}Проверка компонентов:${NC}"
     echo ""
     
     if [ -f "$INSTALL_DIR/audio-player" ]; then
@@ -311,12 +359,14 @@ cmd_info() {
     
     if command -v ffplay > /dev/null; then
         print_success "ffplay установлен"
+    elif command -v ffmpeg > /dev/null; then
+        print_success "ffmpeg установлен"
     elif command -v aplay > /dev/null; then
         print_success "aplay установлен"
     elif command -v mpg123 > /dev/null; then
         print_success "mpg123 установлен"
     else
-        print_warning "Плеер не найден"
+        print_warning "Плеер не найден (рекомендуется: opkg install ffmpeg alsa-utils mpg123)"
     fi
     
     if [ -d "$INSTALL_DIR/media" ]; then
@@ -329,14 +379,22 @@ cmd_info() {
     fi
     
     echo ""
-    echo -e "${CYAN}Размеры:${NC}"
+    printf '%b\n' "${CYAN}Размеры:${NC}"
     echo ""
-    echo "Приложение: $(du -h "$INSTALL_DIR/audio-player" 2>/dev/null | cut -f1)"
-    echo "Медиа: $(du -sh "$INSTALL_DIR/media" 2>/dev/null | cut -f1)"
+    if [ -f "$INSTALL_DIR/audio-player" ]; then
+        echo "Приложение: $(du -h "$INSTALL_DIR/audio-player" 2>/dev/null | cut -f1)"
+    fi
+    if [ -d "$INSTALL_DIR/media" ]; then
+        echo "Медиа: $(du -sh "$INSTALL_DIR/media" 2>/dev/null | cut -f1)"
+    fi
     echo "Всего: $(du -sh "$INSTALL_DIR" 2>/dev/null | cut -f1)"
 }
 
 cmd_uninstall() {
+    if [ -x "$INSTALL_DIR/uninstall.sh" ]; then
+        exec "$INSTALL_DIR/uninstall.sh"
+    fi
+
     print_header
     print_warning "Это удалит приложение и все данные!"
     echo ""
@@ -347,7 +405,8 @@ cmd_uninstall() {
     echo "  - Логи"
     echo ""
     
-    read -p "Вы уверены? (укажите 'yes' для подтверждения): " confirm
+    printf '%s' "Вы уверены? (введите 'yes' для подтверждения): "
+    IFS= read -r confirm || confirm=""
     
     if [ "$confirm" != "yes" ]; then
         print_info "Удаление отменено"
@@ -355,18 +414,37 @@ cmd_uninstall() {
     fi
     
     # Останавливаем приложение
-    pkill -f "$INSTALL_DIR/audio-player" || true
+    cmd_stop 2>/dev/null || true
     
+    # Удаляем Entware автозапуск
+    ENTWARE_SCRIPT=/opt/etc/init.d/S99audio-player
+    ENTWARE_CONFIG=/opt/etc/audio-player-install-dir
+    if [ -f "$ENTWARE_CONFIG" ]; then
+        if [ -x "$ENTWARE_SCRIPT" ]; then
+            "$ENTWARE_SCRIPT" stop >/dev/null 2>&1 || true
+            rm -f "$ENTWARE_SCRIPT"
+        fi
+        rm -f "$ENTWARE_CONFIG"
+    fi
+
     # Удаляем systemd сервис если есть
     if [ -f "/etc/systemd/system/audio-player.service" ]; then
-        sudo systemctl stop audio-player 2>/dev/null || true
-        sudo systemctl disable audio-player 2>/dev/null || true
-        sudo rm /etc/systemd/system/audio-player.service 2>/dev/null || true
-        sudo systemctl daemon-reload 2>/dev/null || true
+        systemctl stop audio-player 2>/dev/null || true
+        systemctl disable audio-player 2>/dev/null || true
+        rm -f /etc/systemd/system/audio-player.service 2>/dev/null || true
+        systemctl daemon-reload 2>/dev/null || true
     fi
     
+    # Удаляем init.d
+    if [ -f "/etc/init.d/audio-player" ]; then
+        /etc/init.d/audio-player stop 2>/dev/null || true
+        rm -f /etc/init.d/audio-player
+    fi
+
     # Удаляем из crontab
-    crontab -l 2>/dev/null | grep -v audio-player | crontab - 2>/dev/null || true
+    if command -v crontab >/dev/null 2>&1; then
+        crontab -l 2>/dev/null | grep -v audio-player | crontab - 2>/dev/null || true
+    fi
     
     # Удаляем папку
     rm -rf "$INSTALL_DIR"
