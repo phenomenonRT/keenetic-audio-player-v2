@@ -300,14 +300,14 @@ compile_app() {
         riscv64) expected_class="02"; expected_endian="01"; expected_machine="f300" ;;
     esac
     if command -v od >/dev/null 2>&1 && command -v cut >/dev/null 2>&1; then
-        elf_header=$(od -An -tx1 -N20 "$temp_file" 2>/dev/null | tr -d ' \n')
+        elf_header=$(od -An -tx1 -N 20 "$temp_file" 2>/dev/null | awk '{ for (i = 1; i <= NF; i++) printf "%s", $i }')
         elf_magic=$(printf '%s' "$elf_header" | cut -c1-8)
         elf_class=$(printf '%s' "$elf_header" | cut -c9-10)
         elf_endian=$(printf '%s' "$elf_header" | cut -c11-12)
         elf_machine=$(printf '%s' "$elf_header" | cut -c37-40)
         if [ "$elf_magic" != "7f454c46" ] || [ "$elf_class" != "$expected_class" ] || [ "$elf_endian" != "$expected_endian" ] || [ "$elf_machine" != "$expected_machine" ]; then
             rm -f "$temp_file"
-            print_error "Релиз содержит бинарник не для этой архитектуры ($ARCH_NAME); установка остановлена."
+            print_error "ELF не совпадает с архитектурой $ARCH_NAME: получено class=$elf_class, endian=$elf_endian, machine=$elf_machine; ожидалось class=$expected_class, endian=$expected_endian, machine=$expected_machine. Установка остановлена."
             exit 1
         fi
     fi
