@@ -90,18 +90,54 @@ chmod +x install.sh
 # Выберите папку в домашней директории
 ```
 
+## 🌐 Настройка сети (интерфейс, IP домашней сети, localhost)
+
+Установщик поддерживает интерактивный режим, в котором можно выбрать сетевой интерфейс и режим привязки сервера:
+
+```bash
+./install.sh -i
+# или через готовую сборку с GitHub:
+curl -fsSL https://raw.githubusercontent.com/phenomenonRT/keenetic-audio-player-v2/main/install-from-release.sh -o /tmp/audio-player-install.sh && sh /tmp/audio-player-install.sh -i
+```
+
+В интерактивном режиме будет предложено:
+1. **Интерфейс домашней сети** — `auto` (автоопределение `br0` на Keenetic / `br-lan` на OpenWrt / интерфейса маршрута по умолчанию), либо конкретный интерфейс из списка, либо ввод вручную.
+2. **Порт веб-интерфейса** (по умолчанию `8181`).
+3. **Режим привязки (BIND_ADDR)**:
+   - `0.0.0.0` — слушать сразу на всех интерфейсах: домашняя сеть и `localhost` одним слушателем (по умолчанию, рекомендуется).
+   - `auto` — слушать только на IP выбранного выше интерфейса домашней сети; при этом `127.0.0.1`/`localhost` **всё равно поднимается отдельным слушателем и остаётся доступен всегда**, независимо от выбранного интерфейса.
+
+То же самое можно задать без интерактивного режима, через параметры командной строки или переменные окружения:
+
+```bash
+./install.sh --interface br0 --port 8181 --bind auto
+# эквивалентно:
+AUDIO_PLAYER_INTERFACE=br0 AUDIO_PLAYER_PORT=8181 AUDIO_PLAYER_BIND=auto ./install.sh
+```
+
+Выбор сохраняется в `audio-player.conf` внутри папки установки и подхватывается при каждом запуске (через `start.sh`, `audio-player.sh start`, автозапуск Entware/systemd/cron) — то есть интерфейс и IP домашней сети определяются заново при каждом старте приложения, а не жёстко прошиты один раз при установке. Изменить их позже можно, отредактировав `audio-player.conf` и перезапустив (`audio-player.sh restart`):
+
+```
+NETWORK_INTERFACE="auto"   # auto, br0, br-lan, eth0, ...
+PORT="8181"
+BIND_ADDR="0.0.0.0"        # 0.0.0.0 | auto | <конкретный IP> | 127.0.0.1
+```
+
+Локальный доступ через `http://127.0.0.1:8181` и `http://localhost:8181` гарантированно работает при любом из этих режимов (кроме случая, когда `BIND_ADDR=127.0.0.1` явно выбран для полного отключения доступа из домашней сети). Итоговый определённый IP домашней сети и все адреса, на которых слушает сервер, выводятся при каждом запуске в лог: `logs/audio-player.log` (или `audio-player.sh status`).
+
 ## 📦 Структура проекта после установки
 
 ```
 /папка_установки/
 ├── audio-player           # Скомпилированное приложение
-├── start.sh              # Скрипт запуска
-├── playlist.json         # Сохранённый плейлист
-├── media/                # Папка с аудио файлами
+├── audio-player.conf      # Настройки сети: интерфейс, порт, режим привязки
+├── start.sh               # Скрипт запуска (подхватывает audio-player.conf)
+├── playlist.json          # Сохранённый плейлист
+├── media/                 # Папка с аудио файлами
 │   ├── song1.mp3
 │   ├── song2.wav
 │   └── ...
-└── logs/                 # Логи приложения
+└── logs/                  # Логи приложения
 ```
 
 ## 🎨 Веб-интерфейс
@@ -212,6 +248,10 @@ GET /api/update-track?id=track_1234567890&name=New%20Name
 
 ## ⚙️ Конфигурация
 
+### Сетевые настройки (audio-player.conf)
+
+См. раздел [🌐 Настройка сети](#-настройка-сети-интерфейс-ip-домашней-сети-localhost) выше — `NETWORK_INTERFACE`, `PORT` и `BIND_ADDR` задаются при установке и хранятся в `audio-player.conf`, откуда их подхватывают `start.sh`, `audio-player.sh` и все варианты автозапуска при каждом старте.
+
 ### Структура playlist.json
 
 ```json
@@ -228,7 +268,7 @@ GET /api/update-track?id=track_1234567890&name=New%20Name
 }
 ```
 
-### Изменение параметров
+### Изменение параметров по умолчанию
 
 Отредактируйте исходный код (`keenetic-audio-player-v2-enhanced.go`):
 
@@ -236,7 +276,9 @@ GET /api/update-track?id=track_1234567890&name=New%20Name
 const (
     RELATIVE_MEDIA_DIR = "media"         // Название папки с музыкой
     RELATIVE_CONFIG    = "playlist.json" // Название файла плейлиста
-    PORT               = ":8181"         // Порт сервера
+    DEFAULT_PORT       = "8181"          // Порт по умолчанию, если PORT не задан
+    DEFAULT_BIND_ADDR  = "0.0.0.0"       // Режим привязки по умолчанию
+    DEFAULT_INTERFACE  = "auto"          // Интерфейс по умолчанию
 )
 ```
 
@@ -249,30 +291,39 @@ GOOS=linux GOARCH=arm GOARM=7 go build -o audio-player keenetic-audio-player-v2-
 
 ### Запуск приложения
 ```bash
-# Вариант 1: Прямой запуск
+# Вариант 1: Прямой запуск (без audio-player.conf, настройки по умолчанию)
 /opt/audio-player/audio-player
 
-# Вариант 2: Через скрипт
+# Вариант 2: Через скрипт (подхватывает audio-player.conf)
 /opt/audio-player/start.sh
 
-# Вариант 3: Systemd (если установлен)
+# Вариант 3: Через менеджер (тоже подхватывает audio-player.conf)
+/opt/audio-player/audio-player.sh start
+
+# Вариант 4: Systemd (если установлен)
 systemctl start audio-player
 ```
 
 ### Просмотр статуса
 ```bash
+# Через менеджер (покажет также текущие сетевые настройки)
+/opt/audio-player/audio-player.sh status
+
 # Systemd
 systemctl status audio-player
 
 # Процесс
 ps aux | grep audio-player
 
-# Логи
+# Логи (показывают выбранный интерфейс и итоговые IP/порты при старте)
 tail -f /opt/audio-player/logs/audio-player.log
 ```
 
 ### Остановка
 ```bash
+# Через менеджер
+/opt/audio-player/audio-player.sh stop
+
 # Systemd
 systemctl stop audio-player
 
@@ -286,6 +337,8 @@ killall audio-player
 ### Перезагрузка
 ```bash
 systemctl restart audio-player
+# или
+/opt/audio-player/audio-player.sh restart
 ```
 
 ## 🔌 Примеры использования
@@ -362,6 +415,21 @@ ps aux | grep audio-player
 
 # 4. Порт
 netstat -tulpn | grep 8181
+```
+
+### Проблема: Не получается открыть по IP домашней сети, хотя localhost работает
+
+**Проверить:**
+```bash
+# 1. Какой интерфейс/IP реально определился при старте
+cat /opt/audio-player/logs/audio-player.log
+
+# 2. Текущие настройки
+cat /opt/audio-player/audio-player.conf
+
+# 3. Если BIND_ADDR=127.0.0.1, доступ из домашней сети отключён специально —
+#    поменяйте на 0.0.0.0 или auto и перезапустите:
+/opt/audio-player/audio-player.sh restart
 ```
 
 ### Проблема: Не удаётся загрузить файлы

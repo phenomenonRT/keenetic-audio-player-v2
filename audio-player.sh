@@ -100,7 +100,10 @@ is_running() {
         esac
     fi
     if command -v pgrep >/dev/null 2>&1; then
-        pgrep -f "$INSTALL_DIR/audio-player" >/dev/null 2>&1 && return 0
+        # Anchored with $ so this never self-matches the audio-player.sh
+        # script invocation itself (its own path starts with the same
+        # "audio-player" prefix, just followed by ".sh").
+        pgrep -f "$INSTALL_DIR/audio-player\$" >/dev/null 2>&1 && return 0
     fi
     return 1
 }
@@ -118,6 +121,11 @@ cmd_start() {
     
     mkdir -p "$INSTALL_DIR/logs"
     cd "$INSTALL_DIR"
+    # Подхватываем NETWORK_INTERFACE/PORT/BIND_ADDR из audio-player.conf,
+    # иначе бинарник стартует с настройками по умолчанию, игнорируя выбор,
+    # сделанный при установке (или через install.sh -i).
+    [ -f "$INSTALL_DIR/audio-player.conf" ] && . "$INSTALL_DIR/audio-player.conf"
+    export NETWORK_INTERFACE PORT BIND_ADDR
     nohup ./audio-player >> logs/audio-player.log 2>&1 &
     echo "$!" > "$PID_FILE"
     
@@ -126,6 +134,8 @@ cmd_start() {
     if is_running; then
         print_success "Приложение запущено (PID $(cat "$PID_FILE" 2>/dev/null || true))"
         echo ""
+        local display_port="${PORT:-8181}"
+        echo "🖥️  Локально (всегда доступно): http://127.0.0.1:$display_port или http://localhost:$display_port"
         local router_ip=""
         if command -v ip >/dev/null 2>&1; then
             router_ip=$(ip addr show 2>/dev/null | awk '$1 == "inet" { split($2, a, "/"); if (a[1] !~ /^127\./) { print a[1]; exit } }')
@@ -133,10 +143,11 @@ cmd_start() {
             router_ip=$(ifconfig 2>/dev/null | awk '/inet addr:/ { sub("addr:", "", $2); print $2; exit } /inet / && $2 ~ /^[0-9]+\./ { print $2; exit }')
         fi
         if [ -n "$router_ip" ]; then
-            echo "🌐 Откройте браузер: http://$router_ip:8181"
+            echo "🌐 Домашняя сеть: http://$router_ip:$display_port"
         else
-            echo "🌐 Откройте http://<IP-адрес-роутера>:8181 (например, http://192.168.1.1:8181)"
+            echo "🌐 Домашняя сеть: http://<IP-адрес-роутера>:$display_port (например, http://192.168.1.1:$display_port)"
         fi
+        echo "Точный выбранный IP смотрите в: $INSTALL_DIR/logs/audio-player.log"
     else
         print_error "Ошибка запуска приложения"
         echo "Проверьте логи: tail -f $INSTALL_DIR/logs/audio-player.log"
@@ -168,7 +179,9 @@ cmd_stop() {
     fi
     
     if command -v pkill >/dev/null 2>&1; then
-        pkill -f "$INSTALL_DIR/audio-player" 2>/dev/null || true
+        # Anchored (see is_running) so this can't match audio-player.sh's
+        # own invocation and kill the currently-running "stop" command.
+        pkill -f "$INSTALL_DIR/audio-player\$" 2>/dev/null || true
     fi
     
     if ! is_running; then
@@ -206,6 +219,14 @@ cmd_status() {
     echo "  Музыка: $INSTALL_DIR/media"
     echo "  Конфиг: $INSTALL_DIR/playlist.json"
     echo "  Логи: $INSTALL_DIR/logs"
+    if [ -f "$INSTALL_DIR/audio-player.conf" ]; then
+        echo "  Сетевые настройки: $INSTALL_DIR/audio-player.conf"
+        ( . "$INSTALL_DIR/audio-player.conf" 2>/dev/null
+          echo "    Интерфейс: ${NETWORK_INTERFACE:-auto}"
+          echo "    Порт: ${PORT:-8181}"
+          echo "    Привязка (BIND_ADDR): ${BIND_ADDR:-0.0.0.0}"
+        )
+    fi
     
     echo ""
     if [ -f "$INSTALL_DIR/playlist.json" ]; then
@@ -269,7 +290,11 @@ cmd_upload() {
     print_success "Файл загружен в $INSTALL_DIR/media/"
     
     # Отправляем запрос на обновление плейлиста
-    curl -s http://localhost:8181/api/playlist > /dev/null 2>&1 || true
+    local upload_port="8181"
+    if [ -f "$INSTALL_DIR/audio-player.conf" ]; then
+        upload_port=$(. "$INSTALL_DIR/audio-player.conf" 2>/dev/null; echo "${PORT:-8181}")
+    fi
+    curl -s "http://localhost:$upload_port/api/playlist" > /dev/null 2>&1 || true
 }
 
 cmd_list_tracks() {
@@ -318,7 +343,11 @@ cmd_clear_tracks() {
             ;;
     esac
     
-    curl -s http://localhost:8181/api/playlist > /dev/null 2>&1 || true
+    local clear_port="8181"
+    if [ -f "$INSTALL_DIR/audio-player.conf" ]; then
+        clear_port=$(. "$INSTALL_DIR/audio-player.conf" 2>/dev/null; echo "${PORT:-8181}")
+    fi
+    curl -s "http://localhost:$clear_port/api/playlist" > /dev/null 2>&1 || true
     print_success "Плейлист очищен"
 }
 
@@ -332,6 +361,9 @@ cmd_info() {
     echo "📋 Плейлист: $INSTALL_DIR/playlist.json"
     echo "📜 Логи: $INSTALL_DIR/logs"
     echo "🔧 Приложение: $INSTALL_DIR/audio-player"
+    if [ -f "$INSTALL_DIR/audio-player.conf" ]; then
+        echo "🌐 Сетевые настройки: $INSTALL_DIR/audio-player.conf"
+    fi
     echo ""
     
     printf '%b\n' "${CYAN}Системная информация:${NC}"

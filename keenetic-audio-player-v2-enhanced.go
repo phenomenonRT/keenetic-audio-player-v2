@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -52,7 +53,9 @@ var appState = &AppState{
 const (
 	RELATIVE_MEDIA_DIR = "media"
 	RELATIVE_CONFIG    = "playlist.json"
-	PORT               = ":8181"
+	DEFAULT_PORT       = "8181"
+	DEFAULT_BIND_ADDR  = "0.0.0.0"
+	DEFAULT_INTERFACE  = "auto"
 	VOICE_MAX_SIZE     = 50 << 20 // 50 МБ для голосовых сообщений
 )
 
@@ -1767,6 +1770,205 @@ func getRouterIPv4Addresses() []string {
 	return addresses
 }
 
+// ==================== Network / interface configuration ====================
+//
+// NETWORK_INTERFACE, PORT and BIND_ADDR can be set as environment variables
+// (install.sh writes them into audio-player.conf, which start.sh / the
+// init scripts source and export before launching the binary). This lets
+// the interface used for the "home network" address, the port, and the
+// bind address all be configured at install time or at every startup,
+// while access via localhost/127.0.0.1 is always guaranteed regardless
+// of what BIND_ADDR is set to.
+
+func getEnv(key, fallback string) string {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return fallback
+	}
+	return v
+}
+
+func normalizePort(p string) string {
+	p = strings.TrimSpace(p)
+	p = strings.TrimPrefix(p, ":")
+	if p == "" {
+		return DEFAULT_PORT
+	}
+	return p
+}
+
+// getInterfaceIPv4 returns the first non-loopback IPv4 address bound to the
+// named network interface, or "" if the interface doesn't exist or has none.
+func getInterfaceIPv4(name string) string {
+	if name == "" {
+		return ""
+	}
+	iface, err := net.InterfaceByName(name)
+	if err != nil {
+		return ""
+	}
+	addrs, err := iface.Addrs()
+	if err != nil {
+		return ""
+	}
+	for _, a := range addrs {
+		var ip net.IP
+		switch v := a.(type) {
+		case *net.IPNet:
+			ip = v.IP.To4()
+		case *net.IPAddr:
+			ip = v.IP.To4()
+		}
+		if ip != nil && !ip.IsLoopback() {
+			return ip.String()
+		}
+	}
+	return ""
+}
+
+// listUpInterfaceNames returns the names of active, non-loopback interfaces.
+func listUpInterfaceNames() []string {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return nil
+	}
+	names := make([]string, 0, len(ifaces))
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		names = append(names, iface.Name)
+	}
+	return names
+}
+
+// isPrivateIPv4 reports whether ip falls in a typical home-network (RFC1918) range.
+func isPrivateIPv4(ip string) bool {
+	parts := strings.Split(ip, ".")
+	if len(parts) != 4 {
+		return false
+	}
+	if parts[0] == "192" && parts[1] == "168" {
+		return true
+	}
+	if parts[0] == "10" {
+		return true
+	}
+	if parts[0] == "172" {
+		if second, err := strconv.Atoi(parts[1]); err == nil && second >= 16 && second <= 31 {
+			return true
+		}
+	}
+	return false
+}
+
+// getDefaultRouteInterface reads /proc/net/route (Linux) to find the
+// interface used for the default route, mirroring `ip route show default`.
+func getDefaultRouteInterface() string {
+	data, err := ioutil.ReadFile("/proc/net/route")
+	if err != nil {
+		return ""
+	}
+	lines := strings.Split(string(data), "\n")
+	for _, line := range lines[1:] {
+		fields := strings.Fields(line)
+		if len(fields) < 4 {
+			continue
+		}
+		iface, destination, flagsHex := fields[0], fields[1], fields[3]
+		if destination != "00000000" {
+			continue // not the default (0.0.0.0/0) route
+		}
+		flags, err := strconv.ParseInt(flagsHex, 16, 64)
+		if err != nil {
+			continue
+		}
+		const rtfGateway = 0x2
+		if flags&rtfGateway == 0 {
+			continue
+		}
+		return iface
+	}
+	return ""
+}
+
+// detectHomeNetworkIP figures out which IP address to advertise/bind as the
+// "home network" address, in the same priority order as install.sh's
+// detect_home_network_ip:
+//  1. an explicitly requested interface (preferredIface != "" && != "auto")
+//  2. br0   (Keenetic home network bridge)
+//  3. br-lan (OpenWrt LAN bridge)
+//  4. whatever interface the default route goes through
+//  5. the first interface with a private (RFC1918) address
+//  6. any active non-loopback interface
+func detectHomeNetworkIP(preferredIface string) (ip string, usedIface string) {
+	if preferredIface != "" && preferredIface != "auto" {
+		if ip := getInterfaceIPv4(preferredIface); ip != "" {
+			return ip, preferredIface
+		}
+	}
+	if ip := getInterfaceIPv4("br0"); ip != "" {
+		return ip, "br0"
+	}
+	if ip := getInterfaceIPv4("br-lan"); ip != "" {
+		return ip, "br-lan"
+	}
+	if defIface := getDefaultRouteInterface(); defIface != "" {
+		if ip := getInterfaceIPv4(defIface); ip != "" {
+			return ip, defIface
+		}
+	}
+	for _, name := range listUpInterfaceNames() {
+		if ip := getInterfaceIPv4(name); ip != "" && isPrivateIPv4(ip) {
+			return ip, name
+		}
+	}
+	for _, name := range listUpInterfaceNames() {
+		if ip := getInterfaceIPv4(name); ip != "" {
+			return ip, name
+		}
+	}
+	return "", ""
+}
+
+// resolveListenAddresses turns the configured BIND_ADDR into the concrete
+// list of "host:port" addresses to listen on. Whatever BIND_ADDR is set to,
+// 127.0.0.1 (localhost) is always included so the web UI stays reachable
+// from the device itself even when BIND_ADDR restricts home-network access.
+func resolveListenAddresses(bindAddr, homeIP, port string) []string {
+	seen := make(map[string]bool)
+	addrs := make([]string, 0, 2)
+	add := func(host string) {
+		if host == "" {
+			return
+		}
+		full := host + ":" + port
+		if !seen[full] {
+			seen[full] = true
+			addrs = append(addrs, full)
+		}
+	}
+
+	switch strings.ToLower(bindAddr) {
+	case "", "0.0.0.0":
+		// Already listens on every interface, localhost included.
+		add("0.0.0.0")
+	case "auto":
+		if homeIP != "" {
+			add(homeIP)
+		} else {
+			add("0.0.0.0")
+		}
+		add("127.0.0.1")
+	case "127.0.0.1", "localhost":
+		add("127.0.0.1")
+	default:
+		add(bindAddr)
+		add("127.0.0.1")
+	}
+	return addrs
+}
+
 func main() {
 	http.HandleFunc("/api/playlist", handleGetPlaylist)
 	http.HandleFunc("/api/add-track", handleAddTrack)
@@ -1778,22 +1980,71 @@ func main() {
 	http.HandleFunc("/api/play-voice", handlePlayVoice)
 	http.HandleFunc("/", handleIndex)
 
+	// NETWORK_INTERFACE / PORT / BIND_ADDR come from the environment, which
+	// install.sh, start.sh and the autostart scripts populate from
+	// audio-player.conf. "auto" (the default) means "figure it out at
+	// startup"; a specific interface name or IP can be set instead.
+	networkInterface := getEnv("NETWORK_INTERFACE", DEFAULT_INTERFACE)
+	port := normalizePort(getEnv("PORT", DEFAULT_PORT))
+	bindAddr := strings.TrimSpace(getEnv("BIND_ADDR", DEFAULT_BIND_ADDR))
+
+	homeIP, usedIface := detectHomeNetworkIP(networkInterface)
+	listenAddrs := resolveListenAddresses(bindAddr, homeIP, port)
+
 	fmt.Println("\n╔════════════════════════════════════════════════════════════╗")
 	fmt.Println("║     🎵 Keenetic Audio Player v2.0+ with PTT              ║")
 	fmt.Println("╚════════════════════════════════════════════════════════════╝")
-	fmt.Println("\n🌐 Open the web interface from a device on the router network:")
-	if addresses := getRouterIPv4Addresses(); len(addresses) > 0 {
-		for _, address := range addresses {
-			fmt.Printf("   http://%s%s\n", address, PORT)
+	fmt.Printf("\n🔌 Network interface setting: %s\n", networkInterface)
+	if homeIP != "" {
+		label := usedIface
+		if label == "" {
+			label = "unknown"
 		}
+		fmt.Printf("🏠 Home network IP: %s (interface: %s)\n", homeIP, label)
 	} else {
-		fmt.Printf("   http://<router-IP>%s\n", PORT)
+		fmt.Println("🏠 Home network IP: could not be auto-detected")
+	}
+	fmt.Println("🖥️  Local access (always available):")
+	fmt.Printf("   http://127.0.0.1:%s\n", port)
+	fmt.Printf("   http://localhost:%s\n", port)
+	if homeIP != "" {
+		fmt.Println("🌐 Home network access:")
+		fmt.Printf("   http://%s:%s\n", homeIP, port)
+	}
+	if addresses := getRouterIPv4Addresses(); len(addresses) > 0 {
+		fmt.Println("📶 All detected network addresses on this device:")
+		for _, address := range addresses {
+			fmt.Printf("   http://%s:%s\n", address, port)
+		}
 	}
 	fmt.Printf("📁 Media Directory: %s\n", appState.mediaDir)
 	fmt.Printf("📋 Config File: %s\n", appState.configFile)
 	fmt.Printf("📊 Installation Dir: %s\n\n", appState.installDir)
 
-	if err := http.ListenAndServe(PORT, nil); err != nil {
-		fmt.Printf("❌ Error: %v\n", err)
+	if len(listenAddrs) == 1 {
+		if err := http.ListenAndServe(listenAddrs[0], nil); err != nil {
+			fmt.Printf("❌ Error listening on %s: %v\n", listenAddrs[0], err)
+		}
+		return
 	}
+
+	// Multiple listeners: e.g. the configured home-network address plus a
+	// dedicated 127.0.0.1 listener so localhost keeps working no matter
+	// what BIND_ADDR restricts. Each listener runs independently, so a
+	// failure on one address (e.g. a stale/unreachable IP) is only logged
+	// and never takes down the others — the process only exits once every
+	// listener has stopped.
+	var wg sync.WaitGroup
+	for _, addr := range listenAddrs {
+		addr := addr
+		fmt.Printf("👂 Listening on %s\n", addr)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := http.ListenAndServe(addr, nil); err != nil {
+				fmt.Printf("❌ Error listening on %s: %v\n", addr, err)
+			}
+		}()
+	}
+	wg.Wait()
 }

@@ -53,6 +53,11 @@ while [ $# -gt 0 ]; do
             echo "  --interface <iface>          Интерфейс домашней сети (br0, eth0, auto...)"
             echo "  --port <port>                Порт веб-сервера (по умолчанию: 8181)"
             echo "  --bind <addr>                Адрес привязки (по умолчанию: 0.0.0.0)"
+            echo "                                0.0.0.0  - слушать везде (домашняя сеть + localhost)"
+            echo "                                auto     - слушать только на определённом интерфейсе"
+            echo "                                           домашней сети + localhost отдельно"
+            echo "                                <IP>     - слушать только на этом IP + localhost отдельно"
+            echo "                                127.0.0.1 - только локальный доступ, без домашней сети"
             exit 0
             ;;
         *)
@@ -320,7 +325,6 @@ choose_network_interface() {
     fi
 
     if [ $INTERACTIVE -eq 1 ]; then
-        echo "Сервер слушает на 0.0.0.0 (всегда доступны и домашняя сеть, и localhost)."
         echo "Выберите интерфейс домашней сети для отображения и привязки:"
         echo ""
         echo "1) auto - Автоопределение (br0 / br-lan / LAN IP) [рекомендуется для Keenetic]"
@@ -364,12 +368,25 @@ choose_network_interface() {
         if [ -n "$user_p" ]; then
             APP_PORT="$user_p"
         fi
+
+        echo ""
+        echo "Режим привязки сервера (BIND_ADDR):"
+        echo "1) 0.0.0.0 - слушать на всех интерфейсах: домашняя сеть + localhost сразу [рекомендуется]"
+        echo "2) auto    - слушать только на выбранном выше интерфейсе домашней сети,"
+        echo "             localhost (127.0.0.1) при этом всё равно остаётся доступен отдельно"
+        printf '%s' "Выберите вариант (1-2) [1]: "
+        IFS= read -r bind_choice || bind_choice=""
+        case "$bind_choice" in
+            2) BIND_ADDR="auto" ;;
+            *) BIND_ADDR="0.0.0.0" ;;
+        esac
     fi
 
     detected_home_ip=$(detect_home_network_ip "$NETWORK_INTERFACE")
     print_success "Интерфейс: $NETWORK_INTERFACE"
     print_success "IP домашней сети: $detected_home_ip"
     print_success "Порт: $APP_PORT"
+    print_success "Режим привязки (BIND_ADDR): $BIND_ADDR"
     print_success "Локальный доступ (localhost / 127.0.0.1): включён обязательно"
 }
 
@@ -536,7 +553,12 @@ NETWORK_INTERFACE="$NETWORK_INTERFACE"
 # Порт веб-сервера (по умолчанию 8181)
 PORT="$APP_PORT"
 
-# Адрес привязки (по умолчанию 0.0.0.0 для одновременного доступа через домашнюю сеть и localhost)
+# Адрес привязки:
+#   0.0.0.0   - слушать везде: домашняя сеть + localhost одним слушателем (по умолчанию)
+#   auto      - слушать только на IP интерфейса из NETWORK_INTERFACE выше;
+#               localhost (127.0.0.1) при этом всё равно поднимается отдельным слушателем
+#   <IP>      - слушать только на этом IP; localhost поднимается отдельным слушателем
+#   127.0.0.1 - слушать только локально, без доступа из домашней сети
 BIND_ADDR="$BIND_ADDR"
 EOF
     chmod 644 "$INSTALL_DIR/audio-player.conf"
@@ -712,7 +734,9 @@ setup_cron() {
     if crontab -l 2>/dev/null | grep -q audio-player; then
         return
     fi
-    (crontab -l 2>/dev/null || true; echo "@reboot $INSTALL_DIR/audio-player >> $INSTALL_DIR/logs/audio-player.log 2>&1 &") | crontab -
+    # Через start.sh, чтобы NETWORK_INTERFACE/PORT/BIND_ADDR из audio-player.conf
+    # были подхвачены и при запуске из cron.
+    (crontab -l 2>/dev/null || true; echo "@reboot $INSTALL_DIR/start.sh >> $INSTALL_DIR/logs/audio-player.log 2>&1 &") | crontab -
     print_success "Добавлено в crontab (@reboot)"
 }
 
@@ -733,6 +757,10 @@ start_application() {
         systemctl start audio-player 2>/dev/null || true
     else
         cd "$INSTALL_DIR"
+        # Подхватываем NETWORK_INTERFACE/PORT/BIND_ADDR из audio-player.conf,
+        # иначе бинарник запустится с настройками по умолчанию (0.0.0.0/8181/auto).
+        [ -f "$INSTALL_DIR/audio-player.conf" ] && . "$INSTALL_DIR/audio-player.conf"
+        export NETWORK_INTERFACE PORT BIND_ADDR
         nohup ./audio-player >> logs/audio-player.log 2>&1 &
         echo "$!" > "$INSTALL_DIR/audio-player.pid"
         print_success "Приложение запущено в фоне"
@@ -744,14 +772,18 @@ start_application() {
     echo "📋 Управление: $INSTALL_DIR/audio-player.sh"
     echo ""
     echo "🌐 Откройте в браузере:"
+    echo "   👉 http://localhost:$APP_PORT  (или http://127.0.0.1:$APP_PORT — доступен всегда, с этого устройства)"
     router_ips=$(get_router_ips)
     if [ -n "$router_ips" ]; then
         for router_ip in $router_ips; do
-            echo "   👉 http://$router_ip:8181"
+            echo "   👉 http://$router_ip:$APP_PORT"
         done
     else
-        echo "   👉 http://192.168.1.1:8181"
+        echo "   👉 http://<IP-домашней-сети>:$APP_PORT (например http://192.168.1.1:$APP_PORT)"
     fi
+    echo ""
+    echo "Подробности запуска и итоговый выбранный IP смотрите в логе:"
+    echo "   $INSTALL_DIR/logs/audio-player.log"
     echo ""
 }
 
@@ -760,6 +792,7 @@ main() {
     print_header
     detect_system
     choose_install_dir
+    choose_network_interface
     check_requirements
     compile_app
     prepare_directories
