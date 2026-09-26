@@ -1,10 +1,10 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/bin/sh
+set -eu
 
 REPOSITORY="phenomenonRT/keenetic-audio-player-v2"
 RAW_BASE="https://raw.githubusercontent.com/${REPOSITORY}/main"
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/keenetic-audio-player-install.XXXXXX")"
-trap 'rm -rf "$TMP_DIR"' EXIT
+trap 'rm -rf "$TMP_DIR"' 0
 
 if ! command -v curl >/dev/null 2>&1; then
     echo "Ошибка: для установки нужен curl." >&2
@@ -16,4 +16,4 @@ if ! curl -fsSL --retry 3 "${RAW_BASE}/install.sh" -o "${TMP_DIR}/install.sh"; t
     exit 1
 fi
 
-bash "${TMP_DIR}/install.sh" "$@"
+sh "${TMP_DIR}/install.sh" "$@"

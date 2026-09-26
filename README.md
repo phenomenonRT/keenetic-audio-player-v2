@@ -40,13 +40,13 @@ chmod +x install.sh
 Установщик загружает бинарник для Linux со [страницы GitHub Releases](https://github.com/phenomenonRT/keenetic-audio-player-v2/releases); Go на устройстве не требуется. Запустите команду на Keenetic или Linux устройстве — установщик предложит выбрать последний релиз или ввести тег версии:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/phenomenonRT/keenetic-audio-player-v2/main/install-from-release.sh -o /tmp/audio-player-install.sh && bash /tmp/audio-player-install.sh
+curl -fsSL https://raw.githubusercontent.com/phenomenonRT/keenetic-audio-player-v2/main/install-from-release.sh -o /tmp/audio-player-install.sh && sh /tmp/audio-player-install.sh
 ```
 
 Для установки конкретного релиза без запроса, например `v1.0.0`:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/phenomenonRT/keenetic-audio-player-v2/main/install-from-release.sh -o /tmp/audio-player-install.sh && AUDIO_PLAYER_VERSION=v1.0.0 bash /tmp/audio-player-install.sh
+curl -fsSL https://raw.githubusercontent.com/phenomenonRT/keenetic-audio-player-v2/main/install-from-release.sh -o /tmp/audio-player-install.sh && AUDIO_PLAYER_VERSION=v1.0.0 sh /tmp/audio-player-install.sh
 ```
 
 Опубликуйте тег командой `git tag v1.0.0` и отправьте его в GitHub командой `git push origin v1.0.0`. GitHub Actions соберёт бинарники и создаст Release автоматически.

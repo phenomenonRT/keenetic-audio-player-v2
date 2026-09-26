@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 # 🎵 Keenetic Audio Player - Инсталлятор
 # Интерактивная установка с выбором папки и способа автозапуска
@@ -6,12 +6,12 @@
 set -e
 
 # Цвета
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-CYAN='\033[0;36m'
-NC='\033[0m'
+RED=''
+GREEN=''
+YELLOW=''
+BLUE=''
+CYAN=''
+NC=''
 
 # Переменные
 INSTALL_DIR=""
@@ -24,37 +24,37 @@ ARCH=$(uname -m)
 # Функции утилит
 
 print_header() {
-    clear
-    echo -e "${CYAN}"
+    clear 2>/dev/null || true
+    printf '%s\n' "${CYAN}"
     echo "╔════════════════════════════════════════════════════════════╗"
     echo "║          🎵 Keenetic Audio Player v2.0                    ║"
     echo "║                   Инсталлятор                              ║"
     echo "╚════════════════════════════════════════════════════════════╝"
-    echo -e "${NC}"
+    printf '%s\n' "${NC}"
 }
 
 print_section() {
     echo ""
-    echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${CYAN}$1${NC}"
-    echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    printf '%s\n' "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    printf '%s\n' "${CYAN}$1${NC}"
+    printf '%s\n' "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""
 }
 
 print_success() {
-    echo -e "${GREEN}✅ $1${NC}"
+    printf '%s\n' "${GREEN}✅ $1${NC}"
 }
 
 print_info() {
-    echo -e "${CYAN}ℹ️  $1${NC}"
+    printf '%s\n' "${CYAN}ℹ️  $1${NC}"
 }
 
 print_warning() {
-    echo -e "${YELLOW}⚠️  $1${NC}"
+    printf '%s\n' "${YELLOW}⚠️  $1${NC}"
 }
 
 print_error() {
-    echo -e "${RED}❌ $1${NC}"
+    printf '%s\n' "${RED}❌ $1${NC}"
 }
 
 # Получение информации о системе
@@ -139,7 +139,8 @@ choose_install_dir() {
     echo "5) Введите свой путь..."
     echo ""
     
-    read -p "Выберите вариант (1-5) [1]: " choice
+    printf '%s' "Выберите вариант (1-5) [1]: "
+    IFS= read -r choice || choice=""
     choice=${choice:-1}
     
     case $choice in
@@ -148,7 +149,8 @@ choose_install_dir() {
         3) INSTALL_DIR="$HOME/audio-player" ;;
         4) INSTALL_DIR="/mnt/sda1/audio-player" ;;
         5) 
-            read -p "Введите путь: " INSTALL_DIR
+            printf '%s' "Введите путь: "
+            IFS= read -r INSTALL_DIR || INSTALL_DIR=""
             ;;
         *)
             print_error "Неверный выбор"
@@ -164,10 +166,10 @@ choose_install_dir() {
 check_requirements() {
     print_section "Проверка требований"
     
-    local missing=0
+    missing=0
     
     # Проверяем загрузчик
-    if ! command -v curl &> /dev/null; then
+    if ! command -v curl >/dev/null 2>&1; then
         print_error "curl не установлен (нужен для загрузки сборки с GitHub)"
         missing=$((missing + 1))
     else
@@ -178,19 +180,19 @@ check_requirements() {
     echo ""
     echo "Проверка доступных плееров:"
     
-    local player_found=0
+    player_found=0
     
-    if command -v ffplay &> /dev/null; then
+    if command -v ffplay >/dev/null 2>&1; then
         print_success "ffplay установлен (лучший выбор)"
         player_found=1
     fi
     
-    if command -v aplay &> /dev/null; then
+    if command -v aplay >/dev/null 2>&1; then
         print_success "aplay установлен"
         player_found=1
     fi
     
-    if command -v mpg123 &> /dev/null; then
+    if command -v mpg123 >/dev/null 2>&1; then
         print_success "mpg123 установлен"
         player_found=1
     fi
@@ -205,12 +207,12 @@ check_requirements() {
     fi
     
     if [ $missing -gt 0 ]; then
-        read -p "Продолжить несмотря на ошибки? (y/N): " -n 1 -r
-        echo
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            print_error "Инсталляция отменена"
-            exit 1
-        fi
+        printf '%s' "Продолжить несмотря на ошибки? (y/N): "
+        IFS= read -r REPLY || REPLY=""
+        case "$REPLY" in
+            y|Y) ;;
+            *) print_error "Инсталляция отменена"; exit 1 ;;
+        esac
     fi
 }
 
@@ -218,7 +220,7 @@ check_requirements() {
 compile_app() {
     print_section "Загрузка приложения с GitHub"
 
-    local asset=""
+    asset=""
     case "$GO_ARCH:$GO_ARM" in
         amd64:) asset="audio-player-linux-amd64" ;;
         386:) asset="audio-player-linux-386" ;;
@@ -233,26 +235,29 @@ compile_app() {
         *) print_error "Для архитектуры $ARCH_NAME нет готовой сборки"; exit 1 ;;
     esac
 
-    local release_tag="${AUDIO_PLAYER_VERSION:-}"
+    release_tag="${AUDIO_PLAYER_VERSION:-}"
     if [ -z "$release_tag" ]; then
-        read -r -p "Версия релиза [latest]: " release_tag || true
+        printf '%s' "Версия релиза [latest]: "
+        IFS= read -r release_tag || release_tag=""
     fi
     release_tag=${release_tag:-latest}
 
-    local base_url=""
+    base_url=""
     if [ "$release_tag" = "latest" ]; then
         base_url="https://github.com/phenomenonRT/keenetic-audio-player-v2/releases/latest/download"
     else
-        if [[ ! "$release_tag" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
-            print_error "Некорректный тег релиза: $release_tag"
-            exit 1
-        fi
+        case "$release_tag" in
+            [A-Za-z0-9]*) ;;
+            *) print_error "Некорректный тег релиза: $release_tag"; exit 1 ;;
+        esac
+        case "$release_tag" in
+            *[!A-Za-z0-9._-]*) print_error "Некорректный тег релиза: $release_tag"; exit 1 ;;
+        esac
         base_url="https://github.com/phenomenonRT/keenetic-audio-player-v2/releases/download/$release_tag"
     fi
 
-    local url="$base_url/$asset"
-    local temp_file
-    temp_file=$(mktemp)
+    url="$base_url/$asset"
+    temp_file=$(mktemp "${TMPDIR:-/tmp}/audio-player.XXXXXX")
     if ! curl -fL --retry 3 "$url" -o "$temp_file"; then
         rm -f "$temp_file"
         print_error "Не удалось загрузить $asset для релиза $release_tag. Проверьте тег и наличие сборки этой архитектуры в GitHub Release."
@@ -273,7 +278,7 @@ prepare_directories() {
     
     # Проверяем прав доступа
     if [ "$INSTALL_DIR" = "/opt/audio-player" ] || [ "$INSTALL_DIR" = "/usr/local/bin/audio-player" ]; then
-        if [ ! -w "$(dirname $INSTALL_DIR)" ]; then
+        if [ ! -w "$(dirname "$INSTALL_DIR")" ]; then
             print_error "Нет прав для установки в $INSTALL_DIR"
             print_info "Попробуйте: sudo ./install.sh"
             exit 1
@@ -307,7 +312,7 @@ install_files() {
     
     # Создаём скрипт запуска
     cat > "$INSTALL_DIR/start.sh" << 'EOF'
-#!/bin/bash
+#!/bin/sh
 cd "$(dirname "$0")"
 exec ./audio-player
 EOF
@@ -330,7 +335,8 @@ choose_autostart() {
     echo "4) Не устанавливать автозапуск"
     echo ""
     
-    read -p "Выберите вариант (1-4) [1]: " autostart_choice
+    printf '%s' "Выберите вариант (1-4) [1]: "
+    IFS= read -r autostart_choice || autostart_choice=""
     autostart_choice=${autostart_choice:-1}
     
     case $autostart_choice in
@@ -350,16 +356,16 @@ setup_systemd() {
     print_section "Установка Systemd сервиса"
     
     # Проверяем наличие systemd
-    if ! command -v systemctl &> /dev/null; then
+    if ! command -v systemctl >/dev/null 2>&1; then
         print_warning "Systemd не найден, используя Crontab"
         setup_cron
         return
     fi
     
-    local service_file="/etc/systemd/system/audio-player.service"
+    service_file="/etc/systemd/system/audio-player.service"
     
     # Проверяем права
-    if [ ! -w "$(dirname $service_file)" ]; then
+    if [ ! -w "$(dirname "$service_file")" ]; then
         print_warning "Требуются права администратора для установки сервиса"
         echo "Выполните: sudo ./install.sh"
         return
@@ -420,9 +426,9 @@ setup_cron() {
 setup_initd() {
     print_section "Установка Init.d скрипта"
     
-    local init_file="/etc/init.d/audio-player"
+    init_file="/etc/init.d/audio-player"
     
-    if [ ! -w "$(dirname $init_file)" ]; then
+    if [ ! -w "$(dirname "$init_file")" ]; then
         print_warning "Требуются права администратора"
         echo "Выполните: sudo ./install.sh"
         return
@@ -463,7 +469,7 @@ EOF
 show_summary() {
     print_section "Установка завершена! 🎉"
     
-    echo -e "${GREEN}Информация об установке:${NC}"
+    printf '%s\n' "${GREEN}Информация об установке:${NC}"
     echo ""
     echo "📍 Папка установки:     $INSTALL_DIR"
     echo "📁 Папка медиа:         $MEDIA_DIR"
@@ -472,7 +478,7 @@ show_summary() {
     echo "📜 Логи:                $INSTALL_DIR/logs/"
     echo ""
     
-    echo -e "${GREEN}Следующие шаги:${NC}"
+    printf '%s\n' "${GREEN}Следующие шаги:${NC}"
     echo ""
     echo "1️⃣  ${CYAN}Запустите приложение:${NC}"
     echo "   $INSTALL_DIR/audio-player"
@@ -485,7 +491,7 @@ show_summary() {
     echo "   - Или скопируйте в: $MEDIA_DIR"
     echo ""
     
-    echo -e "${GREEN}Полезные команды:${NC}"
+    printf '%s\n' "${GREEN}Полезные команды:${NC}"
     echo ""
     echo "   # Запустить вручную"
     echo "   $INSTALL_DIR/audio-player"
@@ -505,20 +511,23 @@ show_summary() {
 ask_run_now() {
     print_section "Готово к запуску"
     
-    read -p "Запустить приложение сейчас? (Y/n): " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Yy]$ ]] || [ -z "$REPLY" ]; then
+    printf '%s' "Запустить приложение сейчас? (Y/n): "
+    IFS= read -r REPLY || REPLY=""
+    case "$REPLY" in
+      y|Y|'')
         echo ""
         echo "Запуск приложения..."
-        echo -e "${GREEN}════════════════════════════════════════════${NC}"
+        printf '%s\n' "${GREEN}════════════════════════════════════════════${NC}"
         echo ""
         cd "$INSTALL_DIR"
         exec ./audio-player
-    else
+        ;;
+      *)
         echo ""
         print_info "Вы можете запустить приложение позже:"
         echo "$INSTALL_DIR/audio-player"
-    fi
+        ;;
+    esac
 }
 
 # Главная функция
